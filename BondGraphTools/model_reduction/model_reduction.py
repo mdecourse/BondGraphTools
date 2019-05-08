@@ -1,3 +1,4 @@
+from collections import namedtuple
 
 import logging
 logger = logging.getLogger(__name__)
@@ -8,6 +9,8 @@ from .algebra import *
 from .symbols import *
 from ..exceptions import SymbolicException
 # from ..atomic import Atomic
+
+DAE = namedtuple("DAE", ["X", "P", "L", "M", "J"])
 
 
 def parse_relation(
@@ -414,10 +417,11 @@ def generate_system_from(model):
     return X, P, L, M, J
 
 
+def simplify_system(system):
 
+    augmented = sympy.SparseMatrix(system.M)
+    matrix = sympy.SparseMatrix(system.L).row_join(augmented)
 
+    _, adj_cols = augmented.shape
 
-
-
-
-
+    L, M = augmented_rref(matrix, augmented_rows=adj_cols)
