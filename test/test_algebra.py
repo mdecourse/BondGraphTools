@@ -16,6 +16,13 @@ from BondGraphTools.model_reduction.model_reduction import (_make_coords,
 #
 #
 
+class TestHelpersFunctions:
+    def test_as_dict(self):
+        matrix = sympy.SparseMatrix(5, 5, {(0, 1):1, (3,4):-1})
+        assert as_dict(matrix) == {
+            0: {1:1 },
+            3: {4: -1}
+        }
 
 class TestParameter:
 
@@ -253,7 +260,7 @@ class TestGenerateSystem:
         assert not M
         assert not JX
 
-        assert L == {0: {0: 1, 1: -10}}
+        assert as_dict(L) == {0: {0: 1, 1: -10}}
         names = [str(x) for x in X]
         assert names == ["e_0", "f_0"]
 
@@ -267,9 +274,9 @@ class TestGenerateSystem:
         assert not M
         assert not JX
 
-        assert len(L) == 2
+        assert L.rows == 2
 
-        for row in L.values():
+        for row in as_dict(L).values():
             assert row in ({0: 1, 2: -1}, {1: -C, 3: 1})
 
         names = [str(x) for x in X]
@@ -282,7 +289,7 @@ class TestGenerateSystem:
         assert str(X) == "[f, e_0, f_0, e]"
         assert not P
 
-        for row in L.values():
+        for row in as_dict(L).values():
             assert row in [{0: 1, 2: 1}, {1: 1, 3: -1}]
 
         assert not M
@@ -337,7 +344,7 @@ class TestMerge:
         assert len(params) == 2
         assert not M
         assert not J
-        assert L == {
+        assert as_dict(L) == {
             0: {1: -p1, 5: 1},
             1: {0: 1, 2: -1},
             2: {3: 1, 4: -p2}
@@ -356,13 +363,13 @@ class TestMerge:
 
         assert str(coords) == '[dx_0, e_0, f_0, e_1, f_1, e_2, f_2, x_0, u_0]'
         assert params == {P}
-        assert L == {
+        assert as_dict(L) == {
             0: {1: 1},
             1: {0: -1, 2: 1},
             2: {4: 1, 6: 1},
             3: {4: 1}
         }
-        assert M == {
+        assert as_dict(M) == {
             0: {0: -P},
             3: {1: 1, 2: -1}
         }
@@ -392,7 +399,7 @@ class Test_generate_system_from:
         assert len(params) == 2
         assert not M
         assert not J
-        assert L == {
+        assert as_dict(L) == {
             0: {1: -p1, 9: 1},  # C_1
             1: {0: 1, 2: -1},   # C_2
             2: {3: 1, 4: -p2},  # R_1
@@ -404,6 +411,29 @@ class Test_generate_system_from:
             8: {4: 1, 8: 1}
         }
 
+
+class TestExactReductions:
+    def test_linear_reduction(self):
+        p1 = Parameter('C')
+        p2 = Parameter('R')
+        c = new("C", value=p1)
+        r = new("R", value=p2)
+        j = new("0")
+        model = new()
+        model.add(c, r, j)
+        # should add 4 extra coordinates
+        connect(c, j)
+        connect(r, j)
+
+        system = generate_system_from(model)
+
+        X, P, L, M, J = system
+
+        linear_reduce(system)
+        X_r, P_r, L_r, M_r, J_r = system
+        assert X_r == X
+        assert P_r == P
+        assert J == J_r
 
 
 def test_extract_coeffs_lin():

@@ -13,6 +13,26 @@ from ..exceptions import SymbolicException
 DAE = namedtuple("DAE", ["X", "P", "L", "M", "J"])
 
 
+def as_dict(sparse_matrix):
+    """Converts an instance of `sympy.SparseMatrix` into a `dict`-of-`dict`s.
+
+    Args:
+        sparse_matrix: The input matrix
+
+    Returns:
+        The matrix in dictionary form.
+    """
+    output = {}
+    n, m = sparse_matrix.shape
+    for i in range(n):
+        row = {
+            j: sparse_matrix[i, j] for j in range(m)
+            if sparse_matrix[i, j] != 0
+        }
+        if row:
+            output.update({i:row})
+    return output
+
 def parse_relation(
         equation: str,
         coordinates: list,
@@ -178,7 +198,8 @@ def _make_coords(model):
 def _generate_atomics_system(model):
     """
     Args:
-          model: Instance of `BondGraphBase` from which to generate matrix equation.
+          model: Instance of `BondGraphBase` from which to generate matrix
+                 equation.
 
     Returns:
         tuple $(coordinates, parameters, L, M, J)$
@@ -191,17 +212,36 @@ def _generate_atomics_system(model):
 
     coordinates, parameters, substitutions = _make_coords(model)
 
-    L = {}  # Matrix for linear part {row:  {column: value }}
-    M = {}  # Matrix for nonlinear part {row:  {column: value }}
-    J = []  # nonlinear terms
+    relations = model.constitutive_relations
+
+    # Matrix for linear part.
+    L = sympy.SparseMatrix(len(relations), len(coordinates), {})
+
+    # Matrix for nonlinear part {row:  {column: value }}
+    M = sympy.SparseMatrix(len(relations), 0, {})
+    J = [] # nonlinear terms
 
     for i, relation in enumerate(model.constitutive_relations):
-        L_1, M_1, J_1 = parse_relation(relation, coordinates, parameters, substitutions)
-        L[i] = L_1
-        if J_1:
-            offset = len(J)
-            J = J + J_1
-            M[i] = {(index + offset): coeff for index, coeff in M_1.items()}
+        L_1, M_1, J_1 = parse_relation(relation, coordinates,
+                                       parameters, substitutions)
+        for j, v in L_1.items():
+            L[i, j] = v
+
+        mappings = {}
+
+        for m_i, term in enumerate(J_1):
+            try:
+                index = J.index(term)
+                mappings[m_i] = index
+            except ValueError:
+                index = len(J)
+                J.append(term)
+                mappings[m_i] = index
+        if len(J) > M.cols:
+            M.col_join(sympy.SparseMatrix(len(relations), len(J) - M.cols,{}))
+
+        for col, value in M_1.items():
+            M[i, mappings[col]] = value
 
     return coordinates, parameters, L, M, J
 
@@ -311,9 +351,8 @@ def merge_systems(*systems):
     `X,P,L,M,J` where
     - `X` is a `list` of local cordinates
     - `P` is a `set` of local parameters
-    - `L` is a (column key) dictionary representation of the linear matrix
-    - `M` is a (column key) dictionary representation of the nonlinear
-      contributions
+    - `L` is a Sparse Matrix
+    - `M` is a Sparse Matrix of the nonlinear contribution weighting.
     - 'J' is nonlinear atomic terms.
 
     The resulting merged system is of the same form.
@@ -417,11 +456,45 @@ def generate_system_from(model):
     return X, P, L, M, J
 
 
-def simplify_system(system):
+def _augmented_rref(matrix={}, cols=0, aug={}):
 
-    augmented = sympy.SparseMatrix(system.M)
-    matrix = sympy.SparseMatrix(system.L).row_join(augmented)
+    rows_left = sorted([r for r in matrix])
 
-    _, adj_cols = augmented.shape
+    def _set_pivot(col, rows_left):
+        try:
+            pivot_row = next(r for r in rows_left
+                             if col in matrix[r]
+                             and matrix[r][col] != 0)
+        except StopIteration:
+            return
 
-    L, M = augmented_rref(matrix, augmented_rows=adj_cols)
+        if pivot_row and (pivot_row != col):
+            swapped_row = matrix[col]
+            matrix[col] = matrix[pivot_row]
+            matrix[pivot_row] = swapped_row
+            if aug:
+                swapped_aug_row = aug[col]
+                aug[col] = aug[pivot_row]
+                aug[pivot_row] = swapped_aug_row
+        return
+
+    col = 0
+    while (col < cols) and rows_left:
+        _set_pivot(col, rows_left)
+        try:
+            v = matrix[col][col]
+        except AttributeError:
+            col += 1
+            continue
+
+        if v == 0:
+            col += 1
+            continue
+
+
+
+def linear_reduce(system):
+
+    X, P, L, M, J = system
+
+    system[2], system[3] = _augmented_rref(L, M)

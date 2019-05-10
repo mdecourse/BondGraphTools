@@ -112,7 +112,7 @@ def flatten(sequence):
             yield item
 
 
-def augmented_rref(matrix, augmented_rows=0):
+def augmented_rref(matrix, augmented_rows=0, inplace=False):
     """ Computes the reduced row-echelon form (rref) of the given augmented
     matrix.
 
@@ -161,4 +161,7 @@ def augmented_rref(matrix, augmented_rows=0):
 
         if pivot >= matrix.rows:
             break
-    return matrix
+    if inplace:
+        return
+    else:
+        return matrix
