@@ -238,8 +238,12 @@ def _generate_atomics_system(model):
                 J.append(term)
                 mappings[m_i] = index
         if len(J) > M.cols:
-            M.col_join(sympy.SparseMatrix(len(relations), len(J) - M.cols,{}))
+            M = M.row_join(
+                sympy.SparseMatrix(len(relations), len(J) - M.cols, {})
+            )
 
+        logger.info("Nonlinear Matrix M: %s", str(M))
+        logger.info("Nonlinear Terms J: %s", str(J))
         for col, value in M_1.items():
             M[i, mappings[col]] = value
 
@@ -358,47 +362,54 @@ def merge_systems(*systems):
     The resulting merged system is of the same form.
 
     """
-    L_out = {}
-    M_out = {}
-    J_out = []
-    row_index = 0
-    logger.info("Merging systems")
-    coord_pairs = []
-    J_offset = 0
-    for x, p, _, _, _ in systems:
-        coord_pairs.append((x, p))
 
-    (coords, params), maps = merge_coordinates(*coord_pairs)
+    logger.info("Merging systems")
+
+    coord_list, param_list, L_list, M_list, nonlinear_terms = zip(*systems)
+
+    # create block diagrams
+    L = sparse_block_diag(L_list)
+    M = sparse_block_diag(M_list)
+
+    (coords, params), maps = merge_coordinates(*zip(coord_list, param_list))
+    P = sympy.SparseMatrix(len(coords), len(coords),{})
 
     logging.info("New coordinates: %s", str(coords))
+    logging.info("Mappings: %s", str(maps))
+    J = []
+    offset = 0
 
-    for new_to_old,  (X, P, L, M, J) in zip(maps, systems):
-        old_to_new = {j: i for i, j in new_to_old.items()}
+    for new_to_old,  old_coords, nlin in zip(maps, coord_list, nonlinear_terms):
 
-        # Substitute for the nonlinear terms.
-        if J:
+        # New_to_Old is a dictionary of ints i:j such that
+        # newx_i = oldx_j + offset
+        #
+        # Hence, we need to swap the columns of L to reflect this change of
+        # coordinates. We also need to substitute the nonlinear terms.
+        # but we can't just to a straight swap because they might share the
+        # so we pass to intermediates first
+
+        if nlin:
             logger.info("Substituting nonlinear terms: %s", J)
-            intermediates = {x: sympy.Dummy(f"i_{i}") for i, x in enumerate(X)}
-
-            J_temp = [j_i.subs(intermediates.items()) for j_i in J]
-            J_offset = len(J_out)
-            J_final = [(x_temp, coords[old_to_new[i]])
-                       for i, x_temp in enumerate(intermediates.values())]
-            J_out += [j_i.subs(J_final) for j_i in J_temp]
-
-        for i in L:
-            L_out[row_index] = {
-                old_to_new[k]: v for k, v in L[i].items()
+            intermediates = {
+                x: sympy.Dummy(f"i_{i}") for i, x in enumerate(old_coords)
             }
-            if M:
-                try:
-                    M_out[row_index] = {(k + J_offset): v
-                                        for k, v in M[i].items()}
-                except KeyError:
-                    pass
-            row_index += 1
+            targets = list(intermediates.values())
+            substitutions = [
+                (targets[j], coords[i]) for i, j in new_to_old.items()
+            ]
+            assert substitutions
+            for term in nlin:
+                temp = term.subs(intermediates.items())
+                J.append(temp.subs(substitutions))
 
-    return coords, params, L_out, M_out, J_out, maps
+        for i, j in new_to_old.items():
+            P[i, j + offset] = 1
+
+        offset += len(old_coords)
+
+    L = L * P.T
+    return coords, params, L, M, J, maps
 
 
 def generate_system_from(model):
@@ -423,8 +434,10 @@ def generate_system_from(model):
 
     map_dictionary = {c: M for c, M in zip(systems.keys(), maps)}
 
+    L_bonds = sympy.SparseMatrix(2*len(model.bonds), L.cols, {})
+
     # Add the bonds:
-    for head_port, tail_port in model.bonds:
+    for row, (head_port, tail_port) in enumerate(model.bonds):
         # 1. Get the respective systems
         X_head = systems[head_port.component][0]
         head_to_local_map = {
@@ -447,54 +460,52 @@ def generate_system_from(model):
                 if x.index == head_port.index and isinstance(x, Flow)]
 
         # 2. add as a row in the linear matrix.
+        L_bonds[2 * row, e_1] = 1
+        L_bonds[2 * row, e_2] = -1
+        L_bonds[2 * row + 1, f_1] = 1
+        L_bonds[2 * row + 1, f_2] = 1
 
-        L.update({
-            len(L): {e_1: 1, e_2: -1},
-            (len(L)+1): {f_1: 1, f_2: 1}}
-        )
+    L = L.col_join(L_bonds)
 
     return X, P, L, M, J
 
 
-def _augmented_rref(matrix={}, cols=0, aug={}):
+def _augmented_rref(matrix, aug):
 
-    rows_left = sorted([r for r in matrix])
+    pivot_row = 0
+    pivot_col = 0
 
-    def _set_pivot(col, rows_left):
-        try:
-            pivot_row = next(r for r in rows_left
-                             if col in matrix[r]
-                             and matrix[r][col] != 0)
-        except StopIteration:
-            return
+    while pivot_row < matrix.rows and pivot_col < matrix.cols:
+        swap_row = next(
+            (r for r in range(pivot_row, matrix.rows)
+             if matrix[r, pivot_col] != 0), -1
+        )
 
-        if pivot_row and (pivot_row != col):
-            swapped_row = matrix[col]
-            matrix[col] = matrix[pivot_row]
-            matrix[pivot_row] = swapped_row
-            if aug:
-                swapped_aug_row = aug[col]
-                aug[col] = aug[pivot_row]
-                aug[pivot_row] = swapped_aug_row
-        return
+        if swap_row >= 0:
+            matrix.row_swap(pivot_row, swap_row)
+            aug.row_swap(pivot_row, swap_row)
 
-    col = 0
-    while (col < cols) and rows_left:
-        _set_pivot(col, rows_left)
-        try:
-            v = matrix[col][col]
-        except AttributeError:
-            col += 1
-            continue
+            pivot_value = matrix[pivot_row, pivot_col]
+            matrix.row_op(pivot_row, lambda v, j: v / pivot_value)
+            aug.row_op(pivot_row, lambda v, j: v / pivot_value)
 
-        if v == 0:
-            col += 1
-            continue
+            for row in range(pivot_row + 1, matrix.rows):
+                row_value = matrix[row, pivot_col]
+                matrix.row_op(
+                    row,
+                    lambda v, j: v - row_value * matrix[pivot_row, j]
+                )
+                aug.row_op(
+                    row,
+                    lambda v, j: v - aug[pivot_row, j] * row_value
+                )
 
+            pivot_row += 1
+        pivot_col += 1
 
 
 def linear_reduce(system):
 
     X, P, L, M, J = system
 
-    system[2], system[3] = _augmented_rref(L, M)
+    _augmented_rref(L, M)

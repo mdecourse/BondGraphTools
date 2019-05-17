@@ -340,7 +340,8 @@ class TestMerge:
 
         coords, params, L, M, J, maps = merge_systems(system_1, system_2)
 
-        assert len(coords) == 6
+        assert str(coords) == "[dx_0, e_0, f_0, e_1, f_1, x_0]"
+
         assert len(params) == 2
         assert not M
         assert not J
@@ -434,34 +435,6 @@ class TestExactReductions:
         assert X_r == X
         assert P_r == P
         assert J == J_r
-
-
-def test_extract_coeffs_lin():
-    eqn = sympy.sympify("y -2*x -3")
-    local_map = {
-        sympy.symbols("y"): 0,
-        sympy.symbols("x"): 1
-    }
-    coords = [sympy.symbols("r_1"), sympy.symbols("r_0"), sympy.S(1)]
-
-    lin, nlin = extract_coefficients(eqn, local_map, coords)
-    assert lin[1] == -2
-    assert lin[0] == 1
-    assert nlin == sympy.sympify("-3")
-
-
-def test_extract_coeffs_nlin():
-    eqn = sympy.sympify("y -2*x -3 + exp(x)")
-    local_map = {
-        sympy.symbols("y"): 0,
-        sympy.symbols("x"): 1
-    }
-    coords = [sympy.symbols("r_1"), sympy.symbols("r_0"), sympy.S(1)]
-
-    lin, nlin = extract_coefficients(eqn, local_map, coords)
-    assert lin[1] == -2
-    assert lin[0] == 1
-    assert nlin == sympy.sympify("exp(r_0) - 3")
 
 
 def test_smith_normal_form():

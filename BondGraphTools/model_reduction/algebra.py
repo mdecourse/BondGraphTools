@@ -123,6 +123,7 @@ def augmented_rref(matrix, augmented_rows=0, inplace=False):
         matrix (sympy.MutableSparseMatrix): The augmented matrix
         augmented_rows (int): The number of rows that have been augmented onto
          the matrix.
+        inplace: Whether or not to do the operations inplace or not
 
     Returns: a matrix M =  [A' | B'] such that A' is in rref.
 
@@ -165,3 +166,29 @@ def augmented_rref(matrix, augmented_rows=0, inplace=False):
         return
     else:
         return matrix
+
+
+def sparse_block_diag(matricies):
+    """Creates a block diagonal matrix from the given matricies
+
+    Args:
+        matricies (list): A list of matricies to block diagonalise. Assumed to be of type
+                         `sympy.SparseMatrix`
+
+    Returns:
+        `sympy.SparseMatrix`
+
+    """
+    values = {}
+    rows = 0
+    cols = 0
+
+    for matrix in matricies:
+        values.update(
+            {(r + rows, c + cols): v for r, c, v in matrix.RL}
+        )
+        n, m = matrix.shape
+        rows += n
+        cols += m
+
+    return sympy.SparseMatrix(rows, cols, values)
