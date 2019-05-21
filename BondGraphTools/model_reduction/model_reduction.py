@@ -515,14 +515,17 @@ def _get_next_eq(rows, system):
     raise InversionError
 
 
-def _merge_in(system, row, eqn):
+def _merge_row(system, row, eqn):
     X, P, L, M, J = system
 
     Lp, Mp, Jp = _sympy_to_dict(eqn, X)
 
     atoms = set()
+
+    pivot_val = Lp[row]
+
     for col, val in Lp:
-        L[row, col] = val
+            L[row, col] = val
 
     for idx, term in enumerate(Jp):
         atoms |= term.atoms()
@@ -537,7 +540,34 @@ def _merge_in(system, row, eqn):
         except AttributeError:
             pass
 
+    for col in range(L.cols):
+        v_rj = L[row, col]
+        v_jj = L[col, col]
+        if not v_jj or not v_rj: continue
+
+        L[row, :] = v_jj*L[row, :] - v_rj*L[col, :]
+        M[row, :] = v_jj*M[row, :] - v_rj*M[col, :]
+
+    pivot_val = L[row, row]
+    if not (pivot_val == 0) or (pivot_val == 1):
+        L.row_op(row, lambda v, _: v / pivot_val)
+        M.row_op(row, lambda v, _: v / pivot_val)
+
     return row, atoms
+
+
+def _substitute_and_check(system, atom, equation):
+
+    X, P, L, M, J = system
+
+    # for each element of J we have to substitute the atom for the equation.
+    # when we expand the substitution as a sum one of four things can happen
+    # a) the term is linear
+    #    so we have to move it into L
+    # b) the term is an existing nonlinear term
+    #    so we have to merge and scale M accordingly
+    # c) the term does not exist in J
+    #    so we must add it in.
 
 
 def _make_ef_invertible(system):
@@ -569,11 +599,10 @@ def _make_ef_invertible(system):
             row, atom, eqn = _get_next_eq(rows, system)
         except InversionError:
             # whatever is left are algebraic
-            raise NotImplementedError
+            break
 
-        J = [term.subs(atom, eqn) for term in J]
-
-        r, a = _merge_in(system, row, atom - eqn)
+        _substitute_and_check(system, atom, eqn)
+        r, a = _merge_row(system, row, atom - eqn)
 
         targets.remove(atom)
 
@@ -604,9 +633,7 @@ def reduce(system):
 
     lin_matrix, nlin_matrix = smith_normal_form(L, M)
 
-    _make_ef_invertible((X, P, lin_matrix, nlin_matrix, J))
-
-
+    X, P, L, M, J = _make_ef_invertible((X, P, lin_matrix, nlin_matrix, J))
 
 
 
