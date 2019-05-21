@@ -89,10 +89,6 @@ class BondGraphBase:
         raise NotImplementedError
 
     @property
-    def basis_vectors(self):
-        raise NotImplementedError
-
-    @property
     def metamodel(self):
         """The `str` description of the meta-model."""
         return self.__metamodel

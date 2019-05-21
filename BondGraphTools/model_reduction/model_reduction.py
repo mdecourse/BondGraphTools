@@ -1,14 +1,14 @@
 from collections import namedtuple
-
 import logging
+
+
+from sympy.core import Lambda
+from sympy.solvers.solveset import invert_real
 logger = logging.getLogger(__name__)
 
-import sympy
-
-from .algebra import *
-from .symbols import *
-from ..exceptions import SymbolicException
-# from ..atomic import Atomic
+from BondGraphTools.model_reduction.algebra import *
+from BondGraphTools.model_reduction.symbols import *
+from BondGraphTools.exceptions import SymbolicException
 
 DAE = namedtuple("DAE", ["X", "P", "L", "M", "J"])
 
@@ -33,6 +33,51 @@ def as_dict(sparse_matrix):
             output.update({i:row})
     return output
 
+
+def _sympy_to_dict(equation, coordinates):
+
+    L = {}
+    M = {}
+    J = []
+
+    remainder = equation
+    partials = [remainder.diff(x) for x in coordinates]
+    for i, r_i in enumerate(partials):
+        if not (r_i.atoms() & set(coordinates)) and not r_i.is_zero:
+            L[i] = r_i
+            remainder -= r_i * coordinates[i]
+
+    remainder = remainder.expand()
+
+    if remainder.is_Add:
+        terms = remainder.args
+    elif remainder.is_zero:
+        terms = []
+    else:
+        terms = [remainder]
+    logger.info("Nonlinear terms %s are %s", type(terms), terms)
+    for term in terms:
+        coeff = sympy.Number("1")
+        nonlinearity = sympy.Number("1")
+        logger.info("Checking factors %s\n", term.as_coeff_mul())
+
+        for factor in flatten(term.as_coeff_mul()):
+            if factor.atoms() & set(coordinates):
+                nonlinearity = factor * nonlinearity
+            else:
+                coeff = factor * coeff
+        logger.info("Coefficients: %s of nonlinearity: %s", coeff, nonlinearity)
+        try:
+            index = J.index(nonlinearity)
+        except ValueError:
+            index = len(J)
+            J.append(nonlinearity)
+
+        M[index] = coeff
+
+    return L, M, J
+
+
 def parse_relation(
         equation: str,
         coordinates: list,
@@ -44,8 +89,9 @@ def parse_relation(
         equation: The equation in string format
         coordinates: a list of symbolic variables for the coordinate system
         parameters: a set of symbolic varibales that should be treated as
-        non-zero parameters.
-        substitutions: A set tuples (p, v) where p is a symbolic variable and v it's value
+                    non-zero parameters.
+        substitutions: A set tuples (p, v) where p is a symbolic variable and
+                       v it's value
 
     Returns:
         tuple (L, M, J) such that $LX + MJ(X) =0$
@@ -98,45 +144,7 @@ def parse_relation(
         raise SymbolicException(f"While parsing {relation} found unknown " 
                                 f"terms {unknowns} in namespace {namespace}")
 
-    L = {}
-    M = {}
-    J = []
-
-    partials = [remainder.diff(x) for x in coordinates]
-    for i, r_i in enumerate(partials):
-        if not (r_i.atoms() & set(coordinates)) and not r_i.is_zero:
-            L[i] = r_i
-            remainder -= r_i*coordinates[i]
-
-    remainder = remainder.expand()
-
-    if remainder.is_Add:
-        terms = remainder.args
-    elif remainder.is_zero:
-        terms = []
-    else:
-        terms = [remainder]
-    logger.info("Nonlinear terms %s are %s", type(terms), terms)
-    for term in terms:
-        coeff = sympy.Number("1")
-        nonlinearity = sympy.Number("1")
-        logger.info("Checking factors %s\n", term.as_coeff_mul())
-
-        for factor in flatten(term.as_coeff_mul()):
-            if factor.atoms() & set(coordinates):
-                nonlinearity = factor * nonlinearity
-            else:
-                coeff = factor * coeff
-        logger.info("Coefficients: %s of nonlinearity: %s", coeff, nonlinearity)
-        try:
-            index = J.index(nonlinearity)
-        except ValueError:
-            index = len(J)
-            J.append(nonlinearity)
-
-        M[index] = coeff
-
-    return L, M, J
+    return _sympy_to_dict(remainder, coordinates)
 
 
 def _is_number(value):
@@ -172,7 +180,8 @@ def _make_coords(model):
     for param in model.params:
         value = model.params[param]
 
-        if not value or param in model.control_vars or param in model.output_vars:
+        if (not value or param in model.control_vars
+                or param in model.output_vars):
             continue
         elif isinstance(value, dict):
             try:
@@ -189,8 +198,10 @@ def _make_coords(model):
         elif isinstance(value, str):
             pass
         else:
-            raise NotImplementedError(f"Don't know how to treat {model.uri}.{param} "
-                                      f"with Value {value}")
+            raise NotImplementedError(
+                f"Don't know how to treat {model.uri}.{param} "
+                f"with Value {value}"
+            )
 
     return outputs + derivatives + ports + state + inputs, params, substitutions
 
@@ -470,42 +481,140 @@ def generate_system_from(model):
     return X, P, L, M, J
 
 
-def _augmented_rref(matrix, aug):
-
-    pivot_row = 0
-    pivot_col = 0
-
-    while pivot_row < matrix.rows and pivot_col < matrix.cols:
-        swap_row = next(
-            (r for r in range(pivot_row, matrix.rows)
-             if matrix[r, pivot_col] != 0), -1
-        )
-
-        if swap_row >= 0:
-            matrix.row_swap(pivot_row, swap_row)
-            aug.row_swap(pivot_row, swap_row)
-
-            pivot_value = matrix[pivot_row, pivot_col]
-            matrix.row_op(pivot_row, lambda v, j: v / pivot_value)
-            aug.row_op(pivot_row, lambda v, j: v / pivot_value)
-
-            for row in range(pivot_row + 1, matrix.rows):
-                row_value = matrix[row, pivot_col]
-                matrix.row_op(
-                    row,
-                    lambda v, j: v - row_value * matrix[pivot_row, j]
-                )
-                aug.row_op(
-                    row,
-                    lambda v, j: v - aug[pivot_row, j] * row_value
-                )
-
-            pivot_row += 1
-        pivot_col += 1
+def sparse_eye(n):
+    """Returns a sparse representation of the identity matrix"""
+    return sympy.SparseMatrix(n, n, {(i, i): 1 for i in range(n)})
 
 
-def linear_reduce(system):
+class InversionError(SymbolicException):
+    pass
+
+
+def invert(eqn, var):
+
+    soln = sympy.solve(eqn, var, dict=True)
+    if var in soln and len(soln) == 1:
+        return soln[var]
+    else:
+        return None
+
+
+def _get_next_eq(rows, system):
 
     X, P, L, M, J = system
 
-    _augmented_rref(L, M)
+    for row, atoms in rows:
+
+        nonlinearity = sum(M[row, c] * J[c] for c in M.cols)
+        for atom in atoms:
+            # try and invert it with respect to the target variable
+            eqn = invert(L[row, :] * X + nonlinearity, atom)
+            if eqn:
+                return row, atom, eqn
+
+    raise InversionError
+
+
+def _merge_in(system, row, eqn):
+    X, P, L, M, J = system
+
+    Lp, Mp, Jp = _sympy_to_dict(eqn, X)
+
+    atoms = set()
+    for col, val in Lp:
+        L[row, col] = val
+
+    for idx, term in enumerate(Jp):
+        atoms |= term.atoms()
+        col = J.index(term)
+        if col < 0:
+            col = len(J)
+            M = M.row_join(sympy.SparseMatrix(M.rows, 1, {}))
+            J.append(term)
+
+        try:
+            M[row, col] = Mp[col]
+        except AttributeError:
+            pass
+
+    return row, atoms
+
+
+def _make_ef_invertible(system):
+    """Assumes Linear part is in Smith Normal Form"""
+
+    X, P, L, M, J = system
+
+    targets = {
+        x for i, x in enumerate(X)
+        if L[i, i] == 0 and isinstance(x, (Effort, Flow))
+    }
+
+    rows = []
+    for row in (i for i, x in enumerate(X)
+                if not isinstance(x, (DVariable, Output))):
+
+        nonlinearity = sum(M[row, j]*J[j] for j in M.cols)
+        rows.append(
+            (row, nonlinearity.atoms() & targets)
+        )
+
+    while targets and rows:
+        # find the row with the smallest number of target variables.
+        rows.sort(key=lambda _, atoms: len(atoms))
+
+        # if we can, remove it from the target list and substitute through
+
+        try:
+            row, atom, eqn = _get_next_eq(rows, system)
+        except InversionError:
+            # whatever is left are algebraic
+            raise NotImplementedError
+
+        J = [term.subs(atom, eqn) for term in J]
+
+        r, a = _merge_in(system, row, atom - eqn)
+
+        targets.remove(atom)
+
+        rows = [
+            (row, atoms & targets) for (row, atoms) in rows
+            if atoms & targets and row != r
+        ]
+        rows.append((r, a))
+
+    return X, P, L, M, J
+
+
+def reduce(system):
+    """ Performs basic symbolic reduction on the given system.
+
+    We assume that the system coordinates are stack so that::
+
+        X = (y, dx, e, f, x, u)
+
+    Args:
+        system:
+
+    Returns: system (tuple)
+    """
+    X, P, L, M, J = system
+
+    J_vect = sympy.Matrix(len(J), 1, J)
+
+    lin_matrix, nlin_matrix = smith_normal_form(L, M)
+
+    _make_ef_invertible((X, P, lin_matrix, nlin_matrix, J))
+
+
+
+
+
+    # if any(isinstance(x, DVariable) for term in J for x in term.atoms()):
+    #     # System is Nonholonomic
+    #     raise NotImplementedError("System is non-holonomic")
+    # elif any(lin_matrix[i, i] == 0
+    #          for i, x in enumerate(X) if isinstance(x, DVariable)):
+    #     raise NotImplementedError("System has conserved quantities")
+    # else:
+    #     return
