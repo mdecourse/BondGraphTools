@@ -136,3 +136,32 @@ class TestSmithNormalForm(object):
         assert (mp - sympy.eye(3)).is_zero
 
 
+class TestImplicitInversions():
+
+    def test_basic(self):
+        eqn = sympy.sympify("k * x -  log(y)")
+        var = sympy.S('y')
+
+        result = invert(eqn, var)
+        assert_implicit(result, sympy.sympify('y - exp(k*x)'))
+
+    def test_quadratic(self):
+        eqn = sympy.sympify("log(y**2 + x**2)")
+        var = sympy.S('y')
+
+        result = invert(eqn, var)
+        assert_implicit(result, sympy.sympify("x**2 + y**2 - 1"))
+
+    def test__exp_product(self):
+        eqn = sympy.sympify(" x / (1 + y**2) - z")
+        var = sympy.S('x')
+
+        result = invert(eqn, var)
+        outcome = sympy.sympify("x - z*(1+y**2)")
+
+        assert_implicit(result, outcome)
+
+def assert_implicit(eq1, eq2):
+    eplus = eq1.expand() + eq2.expand()
+    eminus = eq1.expand() - eq2.expand()
+    assert  eplus == 0 or eminus == 0

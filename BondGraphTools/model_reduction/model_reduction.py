@@ -486,8 +486,6 @@ class InversionError(SymbolicException):
     pass
 
 
-
-
 def _get_next_eq(rows, system):
 
     X, P, L, M, J = system

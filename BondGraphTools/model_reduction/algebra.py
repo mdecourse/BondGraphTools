@@ -5,6 +5,7 @@ Symbolic Algebra Helper functions.
 
 import sympy
 
+
 __all__ = [
     "permutation",
     "sparse_block_diag",
@@ -149,10 +150,39 @@ def sparse_block_diag(matricies):
     return sympy.SparseMatrix(rows, cols, values)
 
 
+def _parse_finite_sets(var, *args):
+
+    if len(args) == 1 and isinstance(args[0], sympy.Expr):
+        result = args[0] - var
+        result.simplify()
+        return result
+    elif len(args) == 2 and isinstance(args[0], sympy.Expr):
+        a1, a2 = args
+        arg_sum = (a1 + a2).expand()
+        if arg_sum == 0:
+            result = a1*a2 + var ** 2
+            result.simplify()
+            return result
+
+    return None
+
+
+def _parse_set_complement(var, universe, divisor):
+    if not divisor & sympy.Reals:
+        if isinstance(universe, sympy.FiniteSet):
+            return _parse_finite_sets(var, *universe)
+
+    return None
+
+
 def invert(eqn, var):
 
-    soln = sympy.solve(eqn, var, dict=True)
-    if var in soln and len(soln) == 1:
-        return soln[var]
+    soln = sympy.solveset(eqn, var)
+
+    if isinstance(soln, sympy.FiniteSet):
+        return _parse_finite_sets(var, *soln.args)
+    if isinstance(soln, sympy.Complement):
+        return _parse_set_complement(var, soln.args[0], soln.args[1])
     else:
         return None
+
