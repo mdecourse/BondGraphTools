@@ -1,4 +1,18 @@
+"""Algebra.py
+
+Symbolic Algebra Helper functions.
+"""
+
 import sympy
+
+__all__ = [
+    "permutation",
+    "sparse_block_diag",
+    "adjacency_to_dict",
+    "smith_normal_form",
+    "flatten",
+    "invert"
+]
 
 
 def permutation(vector, key=None):
@@ -68,7 +82,6 @@ def smith_normal_form(matrix, augment=None):
         complement that is, for a matrix M,
         P = _smith_normal_form(M) is a projection operator onto the nullspace of M
     """
-
     if augment:
         M = matrix.row_join(augment)
         k = augment.cols
@@ -134,3 +147,12 @@ def sparse_block_diag(matricies):
         cols += m
 
     return sympy.SparseMatrix(rows, cols, values)
+
+
+def invert(eqn, var):
+
+    soln = sympy.solve(eqn, var, dict=True)
+    if var in soln and len(soln) == 1:
+        return soln[var]
+    else:
+        return None

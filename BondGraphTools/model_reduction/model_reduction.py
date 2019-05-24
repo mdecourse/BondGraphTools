@@ -1,14 +1,12 @@
 from collections import namedtuple
 import logging
-
-
-from sympy.core import Lambda
-from sympy.solvers.solveset import invert_real
-logger = logging.getLogger(__name__)
+import sympy
 
 from BondGraphTools.model_reduction.algebra import *
 from BondGraphTools.model_reduction.symbols import *
 from BondGraphTools.exceptions import SymbolicException
+
+logger = logging.getLogger(__name__)
 
 DAE = namedtuple("DAE", ["X", "P", "L", "M", "J"])
 
@@ -30,7 +28,7 @@ def as_dict(sparse_matrix):
             if sparse_matrix[i, j] != 0
         }
         if row:
-            output.update({i:row})
+            output.update({i: row})
     return output
 
 
@@ -180,9 +178,9 @@ def _make_coords(model):
     for param in model.params:
         value = model.params[param]
 
-        if (not value or param in model.control_vars
-                or param in model.output_vars):
+        if param in model.control_vars or param in model.output_vars:
             continue
+
         elif isinstance(value, dict):
             try:
                 value = value['value']
@@ -191,12 +189,10 @@ def _make_coords(model):
 
         if isinstance(value, Parameter):
             params.add(value)
-        elif _is_number(value):
-            substitutions.add((sympy.Symbol(param), value))
-        elif isinstance(value, sympy.Expr):
-            pass
-        elif isinstance(value, str):
-            pass
+        elif _is_number(value) or isinstance(value, (sympy.Expr, sympy.Symbol)):
+            p = Parameter(str(param))
+            params.add(p)
+            substitutions.add((p, value))
         else:
             raise NotImplementedError(
                 f"Don't know how to treat {model.uri}.{param} "
@@ -230,7 +226,7 @@ def _generate_atomics_system(model):
 
     # Matrix for nonlinear part {row:  {column: value }}
     M = sympy.SparseMatrix(len(relations), 0, {})
-    J = [] # nonlinear terms
+    J = []  # nonlinear terms
 
     for i, relation in enumerate(model.constitutive_relations):
         L_1, M_1, J_1 = parse_relation(relation, coordinates,
@@ -490,13 +486,6 @@ class InversionError(SymbolicException):
     pass
 
 
-def invert(eqn, var):
-
-    soln = sympy.solve(eqn, var, dict=True)
-    if var in soln and len(soln) == 1:
-        return soln[var]
-    else:
-        return None
 
 
 def _get_next_eq(rows, system):
@@ -505,12 +494,13 @@ def _get_next_eq(rows, system):
 
     for row, atoms in rows:
 
-        nonlinearity = sum(M[row, c] * J[c] for c in M.cols)
+        nonlinearity = sum(M[row, c] * J[c] for c in range(M.cols))
         for atom in atoms:
             # try and invert it with respect to the target variable
-            eqn = invert(L[row, :] * X + nonlinearity, atom)
-            if eqn:
-                return row, atom, eqn
+            f = sum(L[row, i] * X[i] for i in range(L.cols)) + nonlinearity
+            g = invert(f, atom)
+            if g:
+                return row, atom, g
 
     raise InversionError
 
@@ -584,14 +574,14 @@ def _make_ef_invertible(system):
     for row in (i for i, x in enumerate(X)
                 if not isinstance(x, (DVariable, Output))):
 
-        nonlinearity = sum(M[row, j]*J[j] for j in M.cols)
+        nonlinearity = sum(M[row, j] * J[j] for j in range(M.cols))
         rows.append(
             (row, nonlinearity.atoms() & targets)
         )
 
     while targets and rows:
         # find the row with the smallest number of target variables.
-        rows.sort(key=lambda _, atoms: len(atoms))
+        rows.sort(key=lambda row_pair: len(row_pair[1]))
 
         # if we can, remove it from the target list and substitute through
 
@@ -616,7 +606,7 @@ def _make_ef_invertible(system):
 
 
 def reduce(system):
-    """ Performs basic symbolic reduction on the given system.
+    """ Performs inplace basic symbolic reduction on the given system.
 
     We assume that the system coordinates are stack so that::
 
@@ -631,9 +621,13 @@ def reduce(system):
 
     J_vect = sympy.Matrix(len(J), 1, J)
 
-    lin_matrix, nlin_matrix = smith_normal_form(L, M)
+    L, M = smith_normal_form(L, M)
+    X, P, L, M, J = _make_ef_invertible((X, P, L, M, J))
 
-    X, P, L, M, J = _make_ef_invertible((X, P, lin_matrix, nlin_matrix, J))
+    return X, P, L, M, J
+
+
+
 
 
 

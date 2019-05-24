@@ -73,7 +73,7 @@ class BondGraphBase(object):
 
     @property
     def state_vars(self):
-        """A `dict` of dynamic variables for this model"""
+        """A `list` of dynamic variables for this model"""
         return []
 
     @property

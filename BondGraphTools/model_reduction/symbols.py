@@ -3,6 +3,18 @@ import sympy
 
 logger = logging.getLogger(__name__)
 
+__all__ = [
+    "Parameter",
+    "Output",
+    "Effort",
+    "Flow",
+    "Variable",
+    "DVariable",
+    "evaluate",
+    "canonical_order",
+    "Control"
+]
+
 
 class Parameter(sympy.Symbol):
     """ Global parameter class.
@@ -44,9 +56,14 @@ class Parameter(sympy.Symbol):
                 return False
             else:
                 return super().__eq__(other)
-        else:
-            if other.__class__ is Parameter:
-                return super().__eq__(other) and self.value == other.value
+
+        if other.__class__ is Parameter:
+            return super().__eq__(other) and self.value == other.value
+
+        if isinstance(other, sympy.Expr):
+            r = sympy.simplify(other)
+            if isinstance(r, Parameter):
+                return r == self
 
         return False
 
@@ -156,9 +173,12 @@ class Control(sympy.Symbol):
 
     def __hash__(self):
         return super().__hash__()
+
     def __new__(cls, name=None, index=None, **kwargs):
         if not name and isinstance(index, int):
-            obj = super().__new__(cls, f"{cls.default_prefix}_{index}", **kwargs)
+            obj = super().__new__(
+                cls, f"{cls.default_prefix}_{index}", **kwargs
+            )
             obj.index = index
         else:
             try:
@@ -179,9 +199,12 @@ class Output(sympy.Symbol):
 
     def __eq__(self, other):
         return self is other
+
     def __new__(cls, name=None, index=None, **kwargs):
         if not name and isinstance(index, int):
-            obj = super().__new__(cls, f"{cls.default_prefix}_{index}", **kwargs)
+            obj = super().__new__(
+                cls, f"{cls.default_prefix}_{index}", **kwargs
+            )
             obj.index = index
         else:
             try:
