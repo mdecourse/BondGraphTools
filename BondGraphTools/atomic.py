@@ -2,19 +2,21 @@
 cannot be decomposed into other components.
 """
 
-
-from .base import *
-from .exceptions import *
-from .view import Glyph
+import logging
+from BondGraphTools.base import BondGraphBase
+from BondGraphTools.exceptions import InvalidPortException, ModelException
+from BondGraphTools.view import Glyph
+from BondGraphTools.port_managers import PortManager, PortExpander
+import sympy as sp
 
 logger = logging.getLogger(__name__)
+
 
 _symbolics = sp.Expr, sp.Symbol
 
 
 def _is_symbolic_const(value):
     return isinstance(value, _symbolics)
-
 
 class Atomic(BondGraphBase, PortManager):
     """
