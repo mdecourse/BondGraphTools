@@ -1,15 +1,20 @@
 import pytest
+import logging
+logging.basicConfig(level=logging.INFO)
+from test.conftest import assert_implicit
 from sympy import SparseMatrix, sympify, symbols
 import re
 from BondGraphTools.exceptions import SymbolicException
 from BondGraphTools.model_reduction import parse_relation
 from BondGraphTools import new, connect
 import sympy
-from BondGraphTools.model_reduction.model_reduction import _make_coords
-from BondGraphTools.model_reduction.model_reduction import _generate_atomics_system
+from BondGraphTools.model_reduction.model_reduction import (
+    _make_coords, _generate_atomics_system, _normalise, _reduce_constraints,
+    _invert_row, _replace_row, _reduce_row, _simplify_nonlinear_terms,
+    _substitute_and_reduce)
 from BondGraphTools.model_reduction.symbols import *
 from BondGraphTools.model_reduction import *
-
+from sympy import exp
 
 class DummyPort(object):
     def __init__(self, index):
@@ -39,7 +44,8 @@ class DummyModel(object):
                 try:
                     prefix, index = a.split('_')
                 except ValueError:
-                    self.params.update({atom: atom})
+                    if a not in self.params:
+                        self.params.update({a: atom})
                     continue
 
                 if prefix == "x" and a not in self.state_vars:
@@ -92,18 +98,74 @@ class TestDummyModel:
             ["dx_0 - e_0", "f_0 - x_0^2"]
         )
 
-        for v in dummy_model.state_vars:
-            print(v)
-
         X, P, S = _make_coords(dummy_model)
 
         assert str(X) == "[dx_0, e_0, f_0, x_0]"
         assert len(P) == 0
         assert len(S) == 0
 
+    def test_params_1(self):
+
+        dummy_model = DummyModel(
+            ["dx_0 - k * x_0"]
+        )
+
+        X, P, S = _make_coords(dummy_model)
+        dx, x = X
+        k, = P
+        assert isinstance(k, Parameter)
+        assert S == {sympy.Symbol('k'): k}
+
+    def test_params_2(self):
+        dummy_model = DummyModel(
+            ["dx_0 - k * x_0"],
+            {'k': 1}
+        )
+
+        assert dummy_model.params['k'] == 1
+
+        X, P, S = _make_coords(dummy_model)
+        dx, x = X
+        assert not P
+        k = sympy.Symbol('k')
+        assert S == {k: 1}
+
+    def test_parse_relation(self):
+
+        dummy_model = DummyModel(
+            ["dx_0 - k * x_0"],
+            {'k': 1}
+        )
+
+        assert dummy_model.params['k'] == 1
+
+        X, P, S = _make_coords(dummy_model)
+        assert not P
+
+        Lp, Mp, Jp = parse_relation(dummy_model.constitutive_relations[0],
+                                    X, P ,S)
+
+        assert Lp == {0:1, 1:-1}
+        assert not Mp
+        assert not Jp
+
+    def test_parse_relation_2(self):
+        dummy_model = DummyModel(
+            ["dx_0 - k * x_0"]
+        )
+
+        X, P, S = _make_coords(dummy_model)
+        kp, = P
+        ks = sympy.Symbol('k')
+        assert S == {ks: kp}
+
+        Lp, Mp, Jp = parse_relation(dummy_model.constitutive_relations[0],
+                                    X, P, S)
+        assert Lp == {0:1, 1: -kp}
+        assert not Mp
+        assert not Jp
+
     def test_linear(self):
-
-
 
         dummy_model = DummyModel(
             ["x_0 - e_0", "f_1 - dx_0", "u_0 - k * e_0"]
@@ -116,7 +178,7 @@ class TestDummyModel:
         X, P, L, M, J = _generate_atomics_system(dummy_model)
         assert str(X) == "[dx_0, e_0, f_0, e_1, f_1, x_0, u_0]"
         k = next(p for p in P)
-
+        assert isinstance(k, Parameter)
         rl = L.row_list()
         assert rl[:4] == [
             (0, 1, -1),
@@ -126,11 +188,11 @@ class TestDummyModel:
         ]
 
         r, c, v = rl[4]
+        vm = (-v).expand()
+        assert vm.__class__ == Parameter
         assert r == 2
         assert c == 1
-
-
-        assert str(k) == str(-v) # TODO: fix parameter comparison
+        assert vm == k # TODO: fix parameter comparison
         assert rl[5] == (2, 6, 1)
 
         assert not M
@@ -167,16 +229,180 @@ class TestDummyModel:
         ]
 
         assert len(J) == 1
-
         assert J[0] == X[-1]**2
 
 
+class TestNormalise:
+    def test_normalise(self):
+        dummy_model = DummyModel(
+            ["f_0 - x_0^2", "dx_0 - e_0"]
+        )
+        system = _generate_atomics_system(dummy_model)
 
+        X, P, L, M, J = system
+        assert L.row_list() == [
+            (0, 2, 1),
+            (1, 0, 1),
+            (1, 1, -1)
+        ]
+
+        _normalise(system)
+        X, P, L, M, J = system
+        assert L.row_list() == [
+            (0, 0, 1),
+            (0, 1, -1),
+            (2, 2, 1)
+        ]
+
+        assert M.row_list() == [
+            (2, 0, -1)
+        ]
+
+
+class TestConstraints:
+    def test_replace_row(self):
+        eqns = [
+            "dx_0 - x_0 - log(e_0)",
+            "f_0 - x_0",
+            "k * u_0 - log(e_0)"
+        ]
+
+        model = DummyModel(eqns)
+        system = generate_system_from(model)
+        _normalise(system)
+        # want to replace row 5 with
+        k = list(system.P)[0]
+        eqn = system.X[1] - exp(k * system.X[4])
+        _replace_row(system, 4, eqn)
+        term = exp(k * system.X[4])
+
+        _assert_in(term, system.J)
+        assert len(system.J) == 2
+        assert system.L[4, 1] == 1
+        assert system.M[4, 1] == -1, system.M[4,:]
+        assert system.M[1, 0] == 0
+
+    def test_invert_row(self):
+        eqns = [
+            "dx_0 - x_0 - log(e_0)",
+            "f_0 - x_0",
+            "k * u_0 - log(e_0)"
+        ]
+
+        model = DummyModel(eqns)
+        system = generate_system_from(model)
+        _normalise(system)
+        # X = [dx_0, e_0, f_0, x_0, u_0]
+        _, e_0, f_0, _, u_0 = system.X
+        k, = system.P
+        # row 5 is k*u - log(e_0) = 0
+        # invert it with respect to e0
+
+        assert isinstance(k, Parameter)
+        assert system.L[4, 4] == 1
+        assert system.L[1,1] == 0
+        assert system.M[4, 0] == (-1) / k
+
+        atoms = {f_0, e_0}
+        atom, eqn = _invert_row(system, 4, atoms)
+        _replace_row(system, 4, eqn)
+        _reduce_row(system, 4)
+        assert system.L[4, 4] == 0
+        assert system.L[1, 1] == 1
+
+    def test_reduce_row(self):
+        eqns = [
+            "dx_0 - x_0 - log(e_0)",
+            "f_0 - x_0",
+            "k * u_0 - log(e_0)"
+        ]
+
+        model = DummyModel(eqns)
+        system = generate_system_from(model)
+        _normalise(system)
+
+    def test_reduce_constraints(self):
+        eqns = [
+            "dx_0 - x_0 - log(e_0)",
+            "f_0 - x_0",
+            "k * u_0 - log(e_0)"
+        ]
+
+        model = DummyModel(eqns)
+        system = generate_system_from(model)
+        _normalise(system)
+        _reduce_constraints(system)
+
+        for i in range(3):
+            assert system.L[i, i] == 1, system.L
+
+        assert system.L[3, 3] == 0, system.L
+        assert system.L[4, 4] == 0, system.L
+        assert len(system.J) == 2
+        assert system.M[1, 0] == 0
+
+    def test_substitute_and_reduce(self):
+        eqns = [
+            "dx_0 - x_0 - log(e_0)",
+            "f_0 - x_0",
+            "k * u_0 - log(e_0)"
+        ]
+
+        model = DummyModel(eqns)
+        system = generate_system_from(model)
+        _normalise(system)
+        assert system.L[1, :].is_zero
+        _reduce_constraints(system)
+        atom = system.X[1]
+        p, = system.P
+        assert system.L[1, 1] == 1
+        for col in range(system.L.cols):
+            if col == 1:
+                assert system.L[1, col] ==1
+            else:
+                assert system.L[1,col] == 0
+
+        remainder = exp(p*system.X[-1])
+
+        _substitute_and_reduce(system, atom, remainder)
+
+        assert len(system.J) == 1, system.J
+        assert system.M.cols == 1, system.M
+        assert system.L[0, 0] == 1
+        assert system.L[0, 3] == -1
+        assert system.L[0, 4] == -p
+        assert system.M[0, 0] == 0
+        assert system.M[1, 0] == -1
+        assert system.J == [exp(system.X[-1]*p)]
+        L = system.L
+        row = list(L[1, j] for j in range(L.cols))
+
+        assert row == [0, 1, 0, 0, 0]
+
+    def test_perform_substitutions(self):
+        eqns = [
+            "dx_0 - x_0 - log(e_0)",
+            "f_0 - x_0",
+            "k * u_0 - log(e_0)"
+        ]
+
+        model = DummyModel(eqns)
+        system = generate_system_from(model)
+        _normalise(system)
+        _reduce_constraints(system)
+        p, = system.P
+        _simplify_nonlinear_terms(system)
+
+        assert len(system.J) == 1, system.J
+        assert system.M.cols == 1, system.M
+        assert system.L[0, 0] == 1
+        assert system.L[0, 3] == -1
+        assert system.L[0, 4] == -p
+        assert system.M[0, 0] == 0
 
 
 class TestModelReduction:
     def test_reduciton_without_elimination(self):
-
 
         eqns = [
             "dx_0 - x_0 - log(e_0)",
@@ -187,7 +413,7 @@ class TestModelReduction:
         model = DummyModel(eqns)
 
         system = generate_system_from(model)
-        system = reduce(system)
+        reduce(system)
 
         X, P, L, M, J = system
 
@@ -201,11 +427,10 @@ class TestModelReduction:
             [0, 0, 0,   0, 0]
         ]
 
-        from sympy import exp, Mul
+        eqn = exp(k * X[-1])
+        _assert_in(eqn,  J)
 
-        assert J == [exp(Mul(k, X[-1]))]
-
-        M_test = [[0], [1], [0], [0], [0]]
+        M_test = [[0], [-1], [0], [0], [0]]
         _cmp(M, M_test)
         _cmp(L, L_test)
 
@@ -229,9 +454,8 @@ class TestParseRelation:
 
     def test_extended_array(self):
 
-
         eqn = "f = dx"
-        X = symbols('dx,e,f,x')
+        X = sympy.symbols('dx,e,f,x')
 
         L, M, J = parse_relation(eqn,X)
 
@@ -241,7 +465,7 @@ class TestParseRelation:
 
     def test_nonlinear_function(self):
         eqn = "f - I_s*exp(e/V_t) "
-        X = symbols('e,f')
+        X = sympy.symbols('e,f')
         Is = Parameter('I_s')
         V_t = Parameter('V_t')
         P = [Is, V_t]
@@ -309,12 +533,11 @@ class TestGenerateCoords():
 
         assert isinstance(coords, list)
         assert isinstance(params, set)
-        assert isinstance(substitutions, set)
 
         false_symbols = sympy.symbols("e_0, f_0, x_0, dx_0")
         found_symbols = set()
 
-        assert substitutions == {(sympy.Symbol('C'), 1)}
+        assert substitutions == {sympy.Symbol('C'): 1}
         assert len(coords) == 4
         for x in coords:
             assert x not in false_symbols
@@ -381,7 +604,7 @@ class TestGenerateSystem:
 
         X, P, L, M, JX = _generate_atomics_system(model)
         assert len(X) == 4
-        assert P == {C}
+        assert len(P) == 1
         assert not M
         assert not JX
 
@@ -436,7 +659,7 @@ class TestMerge:
         assert len(c_1) == len(c_2) == 4
         assert len(p_1) == len(p_2) == 1
         (c, p), maps = merge_coordinates(
-            (c_1,p_1), (c_2,p_2)
+            (c_1, p_1), (c_2, p_2)
         )
 
         assert len(p) == 1
@@ -523,6 +746,46 @@ class Test_generate_system_from:
             8: {4: 1, 8: 1}
         }
 
+
+def _assert_in(eqn, iterable):
+
+    # todo: make this less hacky
+    for test_eq in iterable:
+        if str(eqn) == str(test_eq):
+            return True
+    assert False, f"{eqn} not in {iterable}"
+
+
+# def are_equal(eq1, eq2):
+#     if eq1.__class__ != eq2.__class__:
+#         return False
+#     sympy.Mul
+#
+#     if len(eq1.args) == len(eq2.args) and len(eq1.args) > 1 and not eq1.is_comutative:
+#         for a1, a2 in zip(eq1.args, eq2.args):
+#             if not are_equal(a1, a2):
+#                 return False
+#         return True
+#
+#     args1 = list(eq1.args)
+#     args2 = list(eq2.args)
+#
+#     while (args1 or args2):
+#         a1 = args1.pop()
+#         target = None
+#         for a in args2:
+#             if are_equal(a1, a):
+#                 target = a
+#         if not target:
+#             return False
+#         else:
+#             args2.remove(target)
+#
+#     if args1 or args2:
+#         return True
+#
+#     return False
+#
 
 def _cmp(sparse, dense):
     from sympy import Matrix

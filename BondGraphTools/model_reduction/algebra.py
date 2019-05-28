@@ -4,7 +4,7 @@ Symbolic Algebra Helper functions.
 """
 
 import sympy
-
+from BondGraphTools.model_reduction.symbols import BondGraphVariables
 
 __all__ = [
     "permutation",
@@ -12,7 +12,7 @@ __all__ = [
     "adjacency_to_dict",
     "smith_normal_form",
     "flatten",
-    "invert"
+    "solve_implicit"
 ]
 
 
@@ -153,7 +153,7 @@ def sparse_block_diag(matricies):
 def _parse_finite_sets(var, *args):
 
     if len(args) == 1 and isinstance(args[0], sympy.Expr):
-        result = args[0] - var
+        result = var - args[0]
         result.simplify()
         return result
     elif len(args) == 2 and isinstance(args[0], sympy.Expr):
@@ -175,7 +175,7 @@ def _parse_set_complement(var, universe, divisor):
     return None
 
 
-def invert(eqn, var):
+def solve_implicit(eqn, var):
 
     soln = sympy.solveset(eqn, var)
 

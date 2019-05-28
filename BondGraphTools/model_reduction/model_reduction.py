@@ -11,6 +11,26 @@ logger = logging.getLogger(__name__)
 DAE = namedtuple("DAE", ["X", "P", "L", "M", "J"])
 
 
+class System(object):
+    __slots__ = ["X", "P", "L", "M", "J"]
+
+    def __init__(self,
+                 coordinates,
+                 parameters,
+                 linear_matrix,
+                 nonlinear_matrix,
+                 nonlinear_terms):
+        self.X = coordinates
+        self.P = parameters
+        self.L = linear_matrix
+        self.M = nonlinear_matrix
+        self.J = nonlinear_terms
+
+    def __iter__(self):
+        for t in (self.X, self.P, self.L, self.M, self.J):
+            yield t
+
+
 def as_dict(sparse_matrix):
     """Converts an instance of `sympy.SparseMatrix` into a `dict`-of-`dict`s.
 
@@ -159,6 +179,19 @@ def _is_number(value):
 
 
 def _make_coords(model):
+    """
+    Generates the coordinates for the model:
+    [y, dx, e, f ,x, u]
+
+    the parameters:
+    [k_1, k_2, ...]
+
+    and the mapping between symbols and values
+    {
+        local_value: k_i
+    }
+
+    """
 
     state = [Variable(x) for x in model.state_vars]
     derivatives = [DVariable(x) for x in state]
@@ -173,33 +206,29 @@ def _make_coords(model):
         ports.append(Flow(f"f_{p.index}"))
 
     params = set()
-    substitutions = set()
+    substitutions = dict()
+    idx = 0
+    for param in (p for p in model.params if p not in model.control_vars
+                  and p not in model.output_vars):
 
-    for param in model.params:
         value = model.params[param]
+        p = sympy.Symbol(param)
 
-        if param in model.control_vars or param in model.output_vars:
-            continue
+        if isinstance(value, dict) and 'value' in value:
+            value = value['value']
 
-        elif isinstance(value, dict):
-            try:
-                value = value['value']
-            except AttributeError:
-                continue
-
-        if isinstance(value, Parameter):
-            params.add(value)
-        elif _is_number(value) or isinstance(value, (sympy.Expr, sympy.Symbol)):
-            p = Parameter(str(param))
-            params.add(p)
-            substitutions.add((p, value))
+        if isinstance(value, (int, float)):
+            substitutions.update({p: value})
         else:
-            raise NotImplementedError(
-                f"Don't know how to treat {model.uri}.{param} "
-                f"with Value {value}"
-            )
+            new_param = Parameter(f"k_{idx}")
+            new_param.value = value
+            idx += 1
+            params.add(new_param)
 
-    return outputs + derivatives + ports + state + inputs, params, substitutions
+            substitutions.update({p: new_param})
+
+    coordinates =outputs + derivatives + ports + state + inputs
+    return coordinates, params, substitutions
 
 
 def _generate_atomics_system(model):
@@ -254,7 +283,7 @@ def _generate_atomics_system(model):
         for col, value in M_1.items():
             M[i, mappings[col]] = value
 
-    return coordinates, parameters, L, M, J
+    return System(coordinates, parameters, L, M, J)
 
 
 def merge_coordinates(*pairs):
@@ -306,6 +335,7 @@ def merge_coordinates(*pairs):
     new_parameters = set()
 
     x_projectors = {}
+    p_projectors = {}
     logger.info("Merging coordinates..")
     for index, (coords, params) in enumerate(pairs):
         x_inverse = {}
@@ -316,6 +346,7 @@ def merge_coordinates(*pairs):
         # Parameters can be shared; needs to be many-to-one
         # So we need to check if they're in the parameter set before adding
         # them
+        
         for old_p_index, param in enumerate(params):
             new_parameters.add(param)
 
@@ -416,7 +447,7 @@ def merge_systems(*systems):
         offset += len(old_coords)
 
     L = L * P.T
-    return coords, params, L, M, J, maps
+    return System(coords, params, L, M, J), maps
 
 
 def generate_system_from(model):
@@ -437,11 +468,11 @@ def generate_system_from(model):
     except AttributeError:
         return _generate_atomics_system(model)
 
-    X, P, L, M, J, maps = merge_systems(*systems.values())
+    system, maps = merge_systems(*systems.values())
 
     map_dictionary = {c: M for c, M in zip(systems.keys(), maps)}
 
-    L_bonds = sympy.SparseMatrix(2*len(model.bonds), L.cols, {})
+    L_bonds = sympy.SparseMatrix(2*len(model.bonds), system.L.cols, {})
 
     # Add the bonds:
     for row, (head_port, tail_port) in enumerate(model.bonds):
@@ -472,9 +503,9 @@ def generate_system_from(model):
         L_bonds[2 * row + 1, f_1] = 1
         L_bonds[2 * row + 1, f_2] = 1
 
-    L = L.col_join(L_bonds)
+    system.L = system.L.col_join(L_bonds)
 
-    return X, P, L, M, J
+    return system
 
 
 def sparse_eye(n):
@@ -486,45 +517,118 @@ class InversionError(SymbolicException):
     pass
 
 
-def _get_next_eq(rows, system):
+def _replace_row(system, row, eqn):
+    Lp, Mp, Jp = _sympy_to_dict(eqn, system.X)
+
+    for col in range(system.L.cols):
+        if col not in Lp:
+            system.L[row, col] = 0
+        else:
+            system.L[row, col] = Lp[col]
+
+    replaced_cols = []
+    for idx, term in enumerate(Jp):
+        col = _get_or_make_index(system, term)
+        system.M[row, col] = Mp[idx]
+        replaced_cols.append(col)
+
+    system.M.row_op(row, lambda v, col: v if col in replaced_cols else 0)
+
+
+def _get_or_make_index(system, term):
+    try:
+        col = system.J.index(term)
+    except ValueError:
+        col = len(system.J)
+        system.M = system.M.row_join(
+            sympy.SparseMatrix(system.M.rows, 1, {})
+        )
+        system.J.append(term)
+
+    return col
+
+
+def _get_dummy_vars(f):
+    atoms = (a for a in f.atoms() if isinstance(a, BondGraphVariables))
+    return [(x, sympy.Dummy(f"_X_{i}")) for i, x in enumerate(atoms)]
+
+
+def _invert_row(system, row, atoms):
 
     X, P, L, M, J = system
 
-    for row, atoms in rows:
+    nonlinearity = sum(M[row, c] * J[c] for c in range(M.cols))
 
-        nonlinearity = sum(M[row, c] * J[c] for c in range(M.cols))
-        for atom in atoms:
-            # try and invert it with respect to the target variable
-            f = sum(L[row, i] * X[i] for i in range(L.cols)) + nonlinearity
-            g = invert(f, atom)
-            if g:
-                return row, atom, g
+    for a in atoms:
+        f = sum(L[row, i] * X[i] for i in range(L.cols)) + nonlinearity
+
+        dummy_vars = _get_dummy_vars(f)
+        try:
+            dummy_a, = (v for x, v in dummy_vars if x == a)
+        except ValueError:
+            continue
+        f = f.subs(dummy_vars)
+        g = solve_implicit(f, dummy_a)
+
+        if g:
+            dummy_inverse = [(v, x) for (x, v) in dummy_vars]
+            g = g.subs(dummy_inverse)
+
+            return a, g
 
     raise InversionError
 
 
+def _reduce_row(system, row):
+
+    for col in range(system.L.cols):
+        v = system.L[row, col]
+        if v == 0:
+            continue
+
+        if row == col:
+            if v != 1:
+                system.L.row_op(row, lambda vv, c: vv / v)
+                system.M.row_op(row, lambda vv, c: vv / v)
+            continue
+
+        d = system.L[col, col]
+
+        if d == 0:
+            if col < row:
+                system.L.row_swap(col, row)
+                system.M.row_swap(col, row)
+                _reduce_row(system, col)
+                return
+            else:
+                continue
+
+        coeff = v / d
+        system.L.row_op(row, lambda vv, c: vv - coeff * system.L[col, c])
+        system.M.row_op(row, lambda vv, c: vv - coeff * system.M[col, c])
+
+
 def _merge_row(system, row, eqn):
     X, P, L, M, J = system
+    logger.info("merging eqn %s", str(eqn))
 
     Lp, Mp, Jp = _sympy_to_dict(eqn, X)
 
     atoms = set()
 
-    pivot_val = Lp[row]
+    try:
+        pivot_val = Lp[row]
+    except KeyError:
+        pivot_val = 0
 
-    for col, val in Lp:
+    for col, val in Lp.items():
             L[row, col] = val
 
     for idx, term in enumerate(Jp):
         atoms |= term.atoms()
-        col = J.index(term)
-        if col < 0:
-            col = len(J)
-            M = M.row_join(sympy.SparseMatrix(M.rows, 1, {}))
-            J.append(term)
-
+        col = _get_or_make_index(system, term)
         try:
-            M[row, col] = Mp[col]
+            M[row, col] = Mp[idx]
         except AttributeError:
             pass
 
@@ -544,9 +648,15 @@ def _merge_row(system, row, eqn):
     return row, atoms
 
 
-def _substitute_and_check(system, atom, equation):
+def _simplify(term):
 
-    X, P, L, M, J = system
+    out = sympy.expand_log(term, force=True)
+    out = sympy.expand_trig(out)
+
+    return out
+
+
+def _substitute_and_reduce(system, atom, equation):
 
     # for each element of J we have to substitute the atom for the equation.
     # when we expand the substitution as a sum one of four things can happen
@@ -557,15 +667,63 @@ def _substitute_and_check(system, atom, equation):
     # c) the term does not exist in J
     #    so we must add it in.
 
+    for idx in range(len(system.J)):
+        term = system.J[idx]
 
-def _make_ef_invertible(system):
+        if atom not in term.atoms():
+            continue
+        logger.info("Reducing %s with %s=%s ", term, atom, equation)
+        system.J[idx] = 0
+        term = term.subs(atom, equation)
+        term = _simplify(term)
+        # as an example; consider
+
+        # J = [  x^2 ]
+        #     [   xy ]
+        #     [exp(u)]
+        # with
+        # u = log(x + x^2)
+        #
+        # after substitution we have the third row
+        # J_3 = Jl X + JjJ
+        #               [x]            [ x^2]
+        #     = [1, 0,0][y] + [1, 0 ,0][ xy ]
+        #               [u]            [ 0  ]
+
+        Jlin, Jnlin, Jterms = _sympy_to_dict(term, system.X)
+
+        # for the linear part L
+        # L := (L + MJ_l)X
+        system.L += system.M * sympy.SparseMatrix(
+            len(system.J), len(system.X),
+            {(idx, col): val for col, val in Jlin.items()}
+        )
+
+        # for the nonlinear part
+        # M := M(I + J_nlin)J
+        for Jn_idx, t in enumerate(Jterms):
+            col = _get_or_make_index(system, t)
+            system.M.col_op(
+                col, lambda v, r: v + Jnlin[Jn_idx] * system.M[r, idx]
+            )
+    idx = 0
+    while idx < len(system.J):
+        if system.J[idx] == 0:
+            system.M.col_del(idx)
+            system.J.remove(idx)
+        else:
+            idx += 1
+    return
+
+
+def _reduce_constraints(system):
     """Assumes Linear part is in Smith Normal Form"""
 
     X, P, L, M, J = system
 
     targets = {
         x for i, x in enumerate(X)
-        if L[i, i] == 0 and isinstance(x, (Effort, Flow))
+        if L[i, i] == 0 and isinstance(x, (Effort, Flow, DVariable, Output))
     }
 
     rows = []
@@ -573,34 +731,67 @@ def _make_ef_invertible(system):
                 if not isinstance(x, (DVariable, Output))):
 
         nonlinearity = sum(M[row, j] * J[j] for j in range(M.cols))
-        rows.append(
-            (row, nonlinearity.atoms() & targets)
-        )
+        atoms = nonlinearity.atoms() & targets
+        if atoms:
+            rows.append((row, atoms))
 
+    # we now have a list or rows that have our target atoms.
     while targets and rows:
         # find the row with the smallest number of target variables.
-        rows.sort(key=lambda row_pair: len(row_pair[1]))
+        rows.sort(key=lambda row_pair: len(row_pair[1]), reverse=True)
+        row, atoms = rows.pop()
 
         # if we can, remove it from the target list and substitute through
-
         try:
-            row, atom, eqn = _get_next_eq(rows, system)
+            atom, eqn = _invert_row(system, row, atoms)
         except InversionError:
-            # whatever is left are algebraic
-            break
-
-        _substitute_and_check(system, atom, eqn)
-        r, a = _merge_row(system, row, atom - eqn)
-
+            continue
+        _replace_row(system, row, eqn)
+        _reduce_row(system, row)
         targets.remove(atom)
 
-        rows = [
-            (row, atoms & targets) for (row, atoms) in rows
-            if atoms & targets and row != r
-        ]
-        rows.append((r, a))
+        rows = [(r, a & targets) for (r, a) in rows if a & targets]
 
-    return X, P, L, M, J
+
+def _normalise(system):
+    system.L, system.M = smith_normal_form(system.L, system.M)
+
+
+def _simplify_nonlinear_terms(system, skip=None):
+
+    # need to reset each time since we can reduce nonlinear
+    # to linear
+    if skip is None:
+        skip = set()
+    atoms = set(a for term in system.J for a in term.atoms())
+
+    indicies = [i for i, x in enumerate(system.X)
+                if system.L[i, i] == 1 and x in atoms and
+                i not in skip]
+    indicies.sort()
+    if not indicies: return
+
+    index = indicies.pop()
+
+    atom = system.X[index]
+    # The system is LX + MJ(X) =0
+    # Hence, set L = (I - P) -> P = (I - L)
+    # Then IX + (L - I)X + MJ(X) = 0
+    # and hence X = (I - L)X - MJ(X)
+
+    remainder = -sum(
+        system.M[index, c] * system.J[c] for c in range(system.M.cols)
+    )
+
+    if atom in remainder.atoms():
+        remainder -= sum(system.L[index, c] * system.X[c]
+                         for c in range(index + 1, system.L.cols))
+
+    _substitute_and_reduce(system, atom, remainder)
+
+    skip.add(index)
+    # tail recurse!
+    return _simplify_nonlinear_terms(system, skip)
 
 
 def reduce(system):
@@ -615,25 +806,6 @@ def reduce(system):
 
     Returns: system (tuple)
     """
-    X, P, L, M, J = system
-
-    J_vect = sympy.Matrix(len(J), 1, J)
-
-    L, M = smith_normal_form(L, M)
-    X, P, L, M, J = _make_ef_invertible((X, P, L, M, J))
-
-    return X, P, L, M, J
-
-
-
-
-
-
-    # if any(isinstance(x, DVariable) for term in J for x in term.atoms()):
-    #     # System is Nonholonomic
-    #     raise NotImplementedError("System is non-holonomic")
-    # elif any(lin_matrix[i, i] == 0
-    #          for i, x in enumerate(X) if isinstance(x, DVariable)):
-    #     raise NotImplementedError("System has conserved quantities")
-    # else:
-    #     return
+    _normalise(system)
+    _reduce_constraints(system)
+    _simplify_nonlinear_terms(system)

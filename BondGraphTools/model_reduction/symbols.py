@@ -12,8 +12,10 @@ __all__ = [
     "DVariable",
     "evaluate",
     "canonical_order",
-    "Control"
+    "Control",
+    "BondGraphVariables"
 ]
+
 
 
 class Parameter(sympy.Symbol):
@@ -262,3 +264,14 @@ def evaluate(equation):
     new_args = [evaluate(a) for a in equation.args]
 
     return equation.__class__(*new_args)
+
+
+BondGraphVariables = (
+    Parameter,
+    Variable,
+    DVariable,
+    Effort,
+    Flow,
+    Control,
+    Output
+)

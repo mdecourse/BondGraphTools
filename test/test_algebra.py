@@ -7,7 +7,7 @@ import sympy
 import BondGraphTools as bgt
 from BondGraphTools import connect
 from BondGraphTools.model_reduction import *
-
+from test.conftest import assert_implicit
 
 class TestHelpersFunctions:
     def test_as_dict(self):
@@ -54,6 +54,9 @@ class TestParameter:
         #
         # assert (sympy.log(P).simplify()) == sympy.Symbol('a')
 
+    def test_funciton_of_param(self):
+        P = Parameter('K')
+        assert sympy.exp(P) == sympy.exp(P)
 
 class TestBGVariables:
 
@@ -92,6 +95,19 @@ class TestBGVariables:
 
         for i,j in matrix:
             assert s_symbols[j] == syms[i]
+
+    def test_product_eq(self):
+        P = Parameter('K')
+        X = Variable("x_0")
+        assert X == X
+        assert P * X == P * X
+        assert P * X == X *P
+        assert sympy.exp(P*X) == sympy.exp(P*X)
+        assert sympy.exp(sympy.Mul(P, X)) == sympy.exp(X*P)
+        eqn = sympy.exp(X*P)
+
+        assert eqn in [sympy.exp(P*X)]
+
 
 
 def test_build_junction_dict():
@@ -136,32 +152,29 @@ class TestSmithNormalForm(object):
         assert (mp - sympy.eye(3)).is_zero
 
 
-class TestImplicitInversions():
+class TestImplicitInversions:
 
     def test_basic(self):
         eqn = sympy.sympify("k * x -  log(y)")
         var = sympy.S('y')
 
-        result = invert(eqn, var)
+        result = solve_implicit(eqn, var)
         assert_implicit(result, sympy.sympify('y - exp(k*x)'))
 
     def test_quadratic(self):
         eqn = sympy.sympify("log(y**2 + x**2)")
         var = sympy.S('y')
 
-        result = invert(eqn, var)
+        result = solve_implicit(eqn, var)
         assert_implicit(result, sympy.sympify("x**2 + y**2 - 1"))
 
     def test__exp_product(self):
         eqn = sympy.sympify(" x / (1 + y**2) - z")
         var = sympy.S('x')
 
-        result = invert(eqn, var)
+        result = solve_implicit(eqn, var)
         outcome = sympy.sympify("x - z*(1+y**2)")
 
         assert_implicit(result, outcome)
 
-def assert_implicit(eq1, eq2):
-    eplus = eq1.expand() + eq2.expand()
-    eminus = eq1.expand() - eq2.expand()
-    assert  eplus == 0 or eminus == 0
+
