@@ -22,8 +22,8 @@ class DummyPort(object):
 
 
 class DummyModel(object):
-    def __init__(self, constitutive_relations, params=None):
-        self.constitutive_relations = constitutive_relations
+    def __init__(self, constitutive_relations, params=None, uri="d1"):
+        self.equations = constitutive_relations
 
         if params:
             self.params = params
@@ -34,8 +34,11 @@ class DummyModel(object):
         self.ports = []
         self.control_vars = []
         self.output_vars = []
+        self.uri = uri
+        self.parent = None
+        self.root = self
 
-        for r in self.constitutive_relations:
+        for r in self.equations:
             atoms = sympify(r).atoms()
             for atom in atoms:
                 if atom.is_number:
@@ -65,11 +68,9 @@ class DummyModel(object):
                     self.outputs_vars.append(a)
 
 
-class TestDummyModel:
-    """ Tests to make sure our dummy model fixture works"""
+class TestGenerateCoords:
+    """ Tests to make we corredtly identify coordinates"""
     def test_coords(self):
-
-
         dummy_model = DummyModel(
             ["x_0 - e_0", "f_1 - dx_0", "u_0 - k * e_0"]
         )
@@ -78,7 +79,7 @@ class TestDummyModel:
 
         assert str(X) == "[dx_0, e_0, f_0, e_1, f_1, x_0, u_0]"
         assert len(P) == 1
-        assert len(S) == 1
+        assert len(X) + len(P) == len(S)
 
     def test_coords_nonlinear(self):
 
@@ -90,7 +91,7 @@ class TestDummyModel:
 
         assert str(X) == "[dx_0, e_0, f_0, e_1, f_1, x_0, u_0]"
         assert len(P) == 1
-        assert len(S) == 1
+        assert len(S) == 8
 
     def test_coords_nonlinear_2(self):
 
@@ -102,10 +103,12 @@ class TestDummyModel:
 
         assert str(X) == "[dx_0, e_0, f_0, x_0]"
         assert len(P) == 0
-        assert len(S) == 0
+        assert len(S) == 4
 
+
+class TestGenerateParams:
     def test_params_1(self):
-
+        "The absence of a value means a unique symbol"
         dummy_model = DummyModel(
             ["dx_0 - k * x_0"]
         )
@@ -114,9 +117,10 @@ class TestDummyModel:
         dx, x = X
         k, = P
         assert isinstance(k, Parameter)
-        assert S == {sympy.Symbol('k'): k}
+        assert S['k'] is k
 
     def test_params_2(self):
+        "when a value is specified, we should remove the symbol entirely"
         dummy_model = DummyModel(
             ["dx_0 - k * x_0"],
             {'k': 1}
@@ -127,8 +131,32 @@ class TestDummyModel:
         X, P, S = _make_coords(dummy_model)
         dx, x = X
         assert not P
-        k = sympy.Symbol('k')
-        assert S == {k: 1}
+        assert S['k'] == 1
+
+    def test_params_3(self):
+        "when a value is symbolic, the symbol should be stored in the value"
+        p = Parameter('k')
+        dummy_model = DummyModel(
+            ["dx_0 - k * x_0"],
+            {'k': Parameter('k')}
+        )
+
+        X, P, S = _make_coords(dummy_model)
+        assert len(P) == 1
+        assert S['k'] is p
+
+    def test_params_4(self):
+        "when a value is expression"
+        p = Parameter('k')
+        dummy_model = DummyModel(
+            ["dx_0 - k * x_0"],
+            {'k': exp(p)}
+        )
+
+        X, P, S = _make_coords(dummy_model)
+        assert len(P) == 1
+        assert p in P
+        assert S['k'] == exp(p)
 
     def test_parse_relation(self):
 
@@ -142,8 +170,8 @@ class TestDummyModel:
         X, P, S = _make_coords(dummy_model)
         assert not P
 
-        Lp, Mp, Jp = parse_relation(dummy_model.constitutive_relations[0],
-                                    X, P ,S)
+        Lp, Mp, Jp = parse_relation(dummy_model.equations[0],
+                                    X, P, S)
 
         assert Lp == {0:1, 1:-1}
         assert not Mp
@@ -156,14 +184,27 @@ class TestDummyModel:
 
         X, P, S = _make_coords(dummy_model)
         kp, = P
-        ks = sympy.Symbol('k')
-        assert S == {ks: kp}
 
-        Lp, Mp, Jp = parse_relation(dummy_model.constitutive_relations[0],
+        Lp, Mp, Jp = parse_relation(dummy_model.equations[0],
                                     X, P, S)
         assert Lp == {0:1, 1: -kp}
         assert not Mp
         assert not Jp
+
+    def test_parse_relation_3(self):
+        e = Effort('e_0')
+        f = Flow('f_0')
+        X = [e, f]
+        namespace = {'e_0': e, 'f_0':f, 'r':sympy.Number(10)}
+        eqn = "e_0 - r*f_0"
+        Lp, Mp, Jp = parse_relation(eqn, X, {}, namespace)
+        assert Lp == {
+            0:1, 1: -10
+        }
+        assert not Mp
+        assert not Jp
+
+
 
     def test_linear(self):
 
@@ -192,7 +233,7 @@ class TestDummyModel:
         assert vm.__class__ == Parameter
         assert r == 2
         assert c == 1
-        assert vm == k # TODO: fix parameter comparison
+        assert vm == k  # TODO: fix parameter comparison
         assert rl[5] == (2, 6, 1)
 
         assert not M
@@ -259,7 +300,7 @@ class TestNormalise:
         ]
 
 
-class TestConstraints:
+class TestModelReduction:
     def test_replace_row(self):
         eqns = [
             "dx_0 - x_0 - log(e_0)",
@@ -400,8 +441,6 @@ class TestConstraints:
         assert system.L[0, 4] == -p
         assert system.M[0, 0] == 0
 
-
-class TestModelReduction:
     def test_reduciton_without_elimination(self):
 
         eqns = [
@@ -435,18 +474,88 @@ class TestModelReduction:
         _cmp(L, L_test)
 
 
+class TestMergeSystems:
+    def test_merge_coordinates(self):
+
+        d1 = DummyModel(["dx_0 - c * x_0"], uri="d1")
+        d2 = DummyModel(["dx_0 + c * x_0"], uri="d2")
+
+        assert d1.uri != d2.uri
+        coords_1, params_1, subs_1 = _make_coords(d1)
+        coords_2, params_2, subs_2 = _make_coords(d2)
+
+        assert len(coords_1) == len(coords_2) == 2
+        assert len(params_1) == len(params_2) == 1
+        p1, = params_1
+        p2, = params_2
+        assert p1.value == p2.value == sympy.Symbol('c')
+
+        args = (coords_1, params_1), (coords_2, params_2)
+
+        (coords, params), inverses = merge_coordinates(*args)
+
+        (c1_inv, p1_inv), (c2_inv, p2_inv) = inverses
+        # new - to - old mappings
+        assert len(coords) == 4
+        assert len(params) == 1
+        assert c1_inv == {0: 0, 2: 1}
+        assert c2_inv == {1: 0, 3: 1}
+        assert p1_inv == {0: 0}
+        assert p2_inv == {0: 0}
+
+    def test_merge_coordinates_2(self):
+        d1 = DummyModel(["dx_0 - c * x_0"], uri="d1")
+        d2 = DummyModel(["dx_0 + d * x_0"], uri="d2")
+
+        assert d1.uri != d2.uri
+        coords_1, params_1, subs_1 = _make_coords(d1)
+        coords_2, params_2, subs_2 = _make_coords(d2)
+
+        assert len(coords_1) == len(coords_2) == 2
+        assert len(params_1) == len(params_2) == 1
+        p1, = params_1
+        p2, = params_2
+
+        assert p1.value != p2.value
+
+        args = (coords_1, params_1), (coords_2, params_2)
+
+        (coords, params), inverses = merge_coordinates(*args)
+
+        (c1_inv, p1_inv), (c2_inv, p2_inv) = inverses
+        # new - to - old mappings
+        assert len(coords) == 4
+        assert len(params) == 2
+        assert c1_inv == {0: 0, 2: 1}
+        assert c2_inv == {1: 0, 3: 1}
+        assert p1_inv == {0: 0}
+        assert p2_inv == {1: 0}
+
+    def test_merge_sytem(self):
+        d1 = DummyModel(["dx_0 - c * x_0"], uri="d1")
+        d2 = DummyModel(["dx_0 + d * x_0"], uri="d2")
+
+        s1 = generate_system_from(d1)
+        s2 = generate_system_from(d2)
+        system, maps = merge_systems(s1, s2)
+
+        assert len(system.X) == 4
+        assert len(system.P) == 2
+
+
 class TestParseRelation:
     def test_basic(self):
-        ## test 1
+        # test 1
 
         eqn = 'e-R*f'
         X = [Effort('e'), Flow('f')]
+        namespace = {str(x):x for x in X}
         with pytest.raises(SymbolicException):
-            parse_relation(eqn, X)
+            parse_relation(eqn, X, [], namespace)
         R = Parameter('R')
         P = [R]
-
-        L, M, J = parse_relation(eqn, X, P)
+        namespace.update({'R':R})
+        L, M, J = parse_relation(eqn, X, P, namespace)
 
         assert L == {0:1, 1:-R}
         assert M == {}
@@ -457,7 +566,7 @@ class TestParseRelation:
         eqn = "f = dx"
         X = sympy.symbols('dx,e,f,x')
 
-        L, M, J = parse_relation(eqn,X)
+        L, M, J = parse_relation(eqn, X, [], {str(x): x for x in X})
 
         assert L == {0:-1,2:1}
         assert M == {}
@@ -469,8 +578,10 @@ class TestParseRelation:
         Is = Parameter('I_s')
         V_t = Parameter('V_t')
         P = [Is, V_t]
+        namespace = {str(x): x for x in X}
+        namespace.update({str(x): x for x in P})
 
-        L, M, J = parse_relation(eqn, X, P)
+        L, M, J = parse_relation(eqn, X, P, namespace)
 
         assert L == {1:1}
         assert M == {0:-Is}
@@ -481,7 +592,11 @@ class TestParseRelation:
         eqn = "f_1 = k*exp(e_1) - k*exp(e_2)"
         X = sympy.symbols('e_1,f_1, e_2,f_2')
         k = Parameter('k')
-        L, M, J = parse_relation(eqn, X, [k])
+        P = [k]
+        namespace = {str(x): x for x in X}
+        namespace.update({str(x): x for x in P})
+
+        L, M, J = parse_relation(eqn, X, [k], namespace)
 
         assert L == {1:  1}
         assert M == {0: k, 1: -k}
@@ -491,20 +606,24 @@ class TestParseRelation:
 
         eqn = "x_0 - 1"
         X = [Variable(index=0)]
-        L, M, J = parse_relation(eqn, X)
-        assert L == {0:1}
-        assert M == {0:-1}
-        assert J ==[1]
+        L, M, J = parse_relation(eqn, X, [], {'x_0': X[0]})
+        assert L == {0: 1}
+        assert M == {0: -1}
+        assert J == [1]
 
     def test_nonlinear_parameter(self):
         eqn = "e_0 - exp(mu)*f_0"
-        P = Parameter('mu')
+        p = Parameter('mu')
+        P = [p]
         X = [Effort(index=0), Flow(index=0)]
-        L, M, J = parse_relation(eqn, X, {P})
+        namespace = {str(x): x for x in X}
+        namespace.update({str(x): x for x in P})
+
+        L, M, J = parse_relation(eqn, X, P, namespace)
 
         assert L == {
-            0:1,
-            1: -sympy.exp(P)
+            0: 1,
+            1: -sympy.exp(p)
         }
         assert not M
         assert not J
@@ -517,68 +636,21 @@ class TestParseRelation:
         R = Parameter('R')
         T = Parameter('T')
         V = Parameter('V')
+        X = [x_0, e_0]
+        P = [mu, R,T, V]
 
-        L, M, J = parse_relation(eqn, [x_0, e_0], {mu, R,T, V})
+        namespace = {str(x): x for x in X}
+        namespace.update({str(x): x for x in P})
+        L, M, J = parse_relation(eqn, X, P, namespace)
 
-        assert L == {1:1}
-        assert M == {0:-mu, 1: -R*T}
+        assert L == {1: 1}
+        assert M == {0: -mu, 1: -R*T}
         assert J == [sympy.S(1), sympy.log(x_0/V)]
 
 
-class TestGenerateCoords():
-    def test_C(self):
-
-        c = new("C", value=1)
-        coords, params, substitutions = _make_coords(c)
-
-        assert isinstance(coords, list)
-        assert isinstance(params, set)
-
-        false_symbols = sympy.symbols("e_0, f_0, x_0, dx_0")
-        found_symbols = set()
-
-        assert substitutions == {sympy.Symbol('C'): 1}
-        assert len(coords) == 4
-        for x in coords:
-            assert x not in false_symbols
-            for y in false_symbols:
-                assert x != y
-                if x.name == y.name:
-                    found_symbols.add(x.name)
-
-        assert len(found_symbols) == 4
-
-    def test_c_control_var(self):
-        c = new("C", value=None)
-        coords, params, substitutions = _make_coords(c)
-
-        assert not substitutions
-        assert not params
-        assert len(coords) == 5
-
-        false_symbols = sympy.symbols("e_0, f_0, x_0, dx_0, C")
-
-        found_symbols = set()
-
-        for x in coords:
-            assert x not in false_symbols
-            for y in false_symbols:
-                assert x != y
-                if x.name == y.name:
-                    found_symbols.add(x.name)
-
-        assert len(found_symbols) == 5
-
-    def test_se_coords_(self):
-        se = new('Se')
-        coords, params, subs = _make_coords(se)
-
-        assert str(coords) == "[f, e_0, f_0, e]"
-        assert not params
-        assert not subs
-
-
 class TestGenerateSystem:
+    """These will fail as long as model.constitutive_relation spits out the
+     wrong symbols"""
 
     def test_r(self):
         model = new("R", value=10)
@@ -588,6 +660,7 @@ class TestGenerateSystem:
         # L -> Linear Part of the matrix
         # M -> Matrix for nonlinear terms
         # JX - > nonlinear terms
+
         X, P, L , M , JX = _generate_atomics_system(model)
         assert len(X) == 2
         assert not P

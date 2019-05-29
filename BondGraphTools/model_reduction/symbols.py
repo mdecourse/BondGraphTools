@@ -17,7 +17,6 @@ __all__ = [
 ]
 
 
-
 class Parameter(sympy.Symbol):
     """ Global parameter class.
 
@@ -30,8 +29,10 @@ class Parameter(sympy.Symbol):
     is_constant = True
 
     def __new__(cls, name, value=None, **assumptions):
+
         obj = super().__new__(cls, name, **assumptions)
         obj.value = value
+
         return obj
 
     def evalf(self, *args):

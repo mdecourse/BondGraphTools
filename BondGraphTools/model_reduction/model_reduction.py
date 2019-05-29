@@ -99,8 +99,8 @@ def _sympy_to_dict(equation, coordinates):
 def parse_relation(
         equation: str,
         coordinates: list,
-        parameters: set = None,
-        substitutions: set = None) -> tuple:
+        parameters: list,
+        namespace: dict) -> tuple:
     """
 
     Args:
@@ -108,8 +108,8 @@ def parse_relation(
         coordinates: a list of symbolic variables for the coordinate system
         parameters: a set of symbolic varibales that should be treated as
                     non-zero parameters.
-        substitutions: A set tuples (p, v) where p is a symbolic variable and
-                       v it's value
+        namespace: A dict tuples (p, var): value where p is a string,
+                       var is a Dummy variable, and v
 
     Returns:
         tuple (L, M, J) such that $LX + MJ(X) =0$
@@ -122,10 +122,6 @@ def parse_relation(
     - $J$ is a column vector of of unique nonlinear terms.
     """
 
-    namespace = {str(x): x for x in coordinates}
-    logger.info("Got coords: %s", [(c, c.__class__) for c in coordinates])
-    if parameters:
-        namespace.update({str(x): x for x in parameters})
     try:
         p, q = equation.split("=")
         relation = f"({p}) -({q})"
@@ -134,27 +130,14 @@ def parse_relation(
 
     logger.info(f"Trying to sympify \'{relation}\' with locals={namespace}")
 
-    remainder = sympy.sympify(relation, locals=namespace).expand()
+    remainder = sympy.sympify(relation, namespace).expand()
 
     logger.info(f"Got {remainder}")
 
-    if substitutions:
-        remainder = remainder.subs(substitutions)
-
     unknowns = []
     for a in remainder.atoms():
-        if a in coordinates:
+        if a in coordinates or a in parameters or a.is_number:
             continue
-        if a.is_number:
-            continue
-        if parameters and str(a) in {str(p) for p in parameters}:
-            continue
-
-        # TODO: hack to get around weird behaviour with sympy
-        if a.name in namespace:
-            remainder = remainder.subs(a, namespace[a.name])
-            continue
-
         logger.info(f"Don't know what to do with {a} of type f{a.__class__} ")
         unknowns.append(a)
 
@@ -186,49 +169,103 @@ def _make_coords(model):
     the parameters:
     [k_1, k_2, ...]
 
+
     and the mapping between symbols and values
     {
         local_value: k_i
     }
+    which are immediately substituted.
 
+
+    For parameters, we have 3 cases::
+
+        1. Parameter Values are specified numerically
+           Here, we interpret this as a 'universal constant' and simply
+           discard the name
+        2. Parameter Values are an existing symbol or symbolic expression.
+           An instance of `Parameter` is created for each unique symbol.
+           If values are not specified, they are given a local name.
+        3. Parameter Value is an instance of `Parameter`.
+           If it does not exist in the
     """
 
-    state = [Variable(x) for x in model.state_vars]
-    derivatives = [DVariable(x) for x in state]
+    def _update_parameters(parameters, atom):
+        if atom in parameters:
+            return atom
+        if isinstance(atom, Parameter):
+            parameters.append(atom)
+            return atom
+        else:
+            p = Parameter(name=str(atom), value=atom)
+            parameters.append(p)
+            return p
 
-    inputs = [Control(u) for u in model.control_vars]
-    outputs = [Output(y) for y in model.output_vars]
+    coordinates = []
+    params = []
+    namespace = dict()
 
-    ports = []
+    state = []
+    for x in model.state_vars:
+        v = Variable(x)
+        namespace[x] = v
+        state.append(v)
+
+    for y in model.output_vars:
+        v = Output(y)
+        namespace[y] = v
+        coordinates.append(v)
+
+    for x in state:
+        v = DVariable(x)
+        namespace[str(v)] = v
+        coordinates.append(v)
+
     for p in model.ports:
+        e_str = f"e_{p.index}"
+        f_str = f"f_{p.index}"
+        e = Effort(e_str)
+        f = Flow(f_str)
+        namespace.update({e_str: e, f_str: f})
+        coordinates += [e, f]
 
-        ports.append(Effort(f"e_{p.index}"))
-        ports.append(Flow(f"f_{p.index}"))
+    coordinates += state
 
-    params = set()
-    substitutions = dict()
-    idx = 0
-    for param in (p for p in model.params if p not in model.control_vars
-                  and p not in model.output_vars):
+    for u in model.control_vars:
+        v = Control(u)
+        namespace[u] = v
+        coordinates.append(v)
+
+    for param in (p for p in model.params if
+                  p not in model.control_vars and
+                  p not in model.output_vars):
+
+        assert isinstance(param, str), \
+            f"{model.uri}.{param} is must be a string"
 
         value = model.params[param]
-        p = sympy.Symbol(param)
-
         if isinstance(value, dict) and 'value' in value:
             value = value['value']
 
-        if isinstance(value, (int, float)):
-            substitutions.update({p: value})
+        # Parameter values are given as a number.
+        if isinstance(value, (float, int)):
+            value = sympy.Number(value)
+        # Parameters are symbolic
+        elif isinstance(value, (sympy.Symbol, Parameter)):
+            value = _update_parameters(params, value)
+        # Parameters are equations
+        elif isinstance(value, sympy.Expr):
+            for atom in {v for v in value.atoms()}:
+                if atom.is_number and not isinstance(atom, Parameter):
+                    continue
+                v = _update_parameters(params, atom)
+                value.subs(atom, v)
         else:
-            new_param = Parameter(f"k_{idx}")
-            new_param.value = value
-            idx += 1
-            params.add(new_param)
+            raise NotImplementedError(
+                f"Unknown parameter value {model.uri}.{param} = {value}"
+            )
+        namespace.update({param: value})
 
-            substitutions.update({p: new_param})
-
-    coordinates =outputs + derivatives + ports + state + inputs
-    return coordinates, params, substitutions
+    return coordinates, params, namespace
 
 
 def _generate_atomics_system(model):
@@ -244,11 +281,12 @@ def _generate_atomics_system(model):
 
     """
     # coordinates is list
+
+
+    relations = model.equations
     # parameters is a set
 
-    coordinates, parameters, substitutions = _make_coords(model)
-
-    relations = model.constitutive_relations
+    coordinates, parameters, namespace = _make_coords(model)
 
     # Matrix for linear part.
     L = sympy.SparseMatrix(len(relations), len(coordinates), {})
@@ -257,9 +295,9 @@ def _generate_atomics_system(model):
     M = sympy.SparseMatrix(len(relations), 0, {})
     J = []  # nonlinear terms
 
-    for i, relation in enumerate(model.constitutive_relations):
+    for i, relation in enumerate(relations):
         L_1, M_1, J_1 = parse_relation(relation, coordinates,
-                                       parameters, substitutions)
+                                       parameters, namespace)
         for j, v in L_1.items():
             L[i, j] = v
 
@@ -332,13 +370,24 @@ def merge_coordinates(*pairs):
         Control: 0,
     }
 
-    new_parameters = set()
+    new_parameters = []
+
+    def _get_param_index(p):
+        values = [P.value for P in new_parameters]
+        if p.value is None or p.value not in values:
+            idx = len(new_parameters)
+            param = Parameter(f"k_{idx}", value=p.value)
+            new_parameters.append(param)
+        else:
+            idx = values.index(p.value)
+        return idx
 
     x_projectors = {}
     p_projectors = {}
     logger.info("Merging coordinates..")
     for index, (coords, params) in enumerate(pairs):
         x_inverse = {}
+        p_inverse = {}
 
         logger.info(
             "Coordinates: %s, Params %s:", coords, params
@@ -346,12 +395,12 @@ def merge_coordinates(*pairs):
         # Parameters can be shared; needs to be many-to-one
         # So we need to check if they're in the parameter set before adding
         # them
-        
-        for old_p_index, param in enumerate(params):
-            new_parameters.add(param)
+
+        for old_p_index, p in enumerate(params):
+            p_idx = _get_param_index(p)
+            p_inverse.update({p_idx: old_p_index})
 
         for idx, x in enumerate(coords):
-
             new_idx = len(new_coordinates)
             x_inverse.update({new_idx: idx})
 
@@ -362,7 +411,7 @@ def merge_coordinates(*pairs):
             new_coordinates.append(new_x)
 
         x_projectors[index] = x_inverse
-
+        p_projectors[index] = p_inverse
     new_coordinates, permuation_map = permutation(
         new_coordinates, canonical_order
     )
@@ -374,7 +423,7 @@ def merge_coordinates(*pairs):
             permuation[i]: j for i, j in x_projectors[index].items()
         }
 
-    projectors = [x_projectors[i] for i in x_projectors]
+    projectors = [(x_projectors[i], p_projectors[i]) for i in x_projectors]
     return (new_coordinates, new_parameters), projectors
 
 
@@ -391,7 +440,7 @@ def merge_systems(*systems):
 
     Merges a set of systems together. Each system should be of the form
     `X,P,L,M,J` where
-    - `X` is a `list` of local cordinates
+    - `X` is a `list` of local coordinates
     - `P` is a `set` of local parameters
     - `L` is a Sparse Matrix
     - `M` is a Sparse Matrix of the nonlinear contribution weighting.
@@ -417,7 +466,8 @@ def merge_systems(*systems):
     J = []
     offset = 0
 
-    for new_to_old,  old_coords, nlin in zip(maps, coord_list, nonlinear_terms):
+    for (new_to_old, param_map), old_coords, nlin in zip(
+            maps, coord_list, nonlinear_terms):
 
         # New_to_Old is a dictionary of ints i:j such that
         # newx_i = oldx_j + offset
