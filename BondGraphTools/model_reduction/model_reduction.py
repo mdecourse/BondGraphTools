@@ -1,4 +1,5 @@
 from collections import namedtuple
+from ordered_set import OrderedSet
 import logging
 import sympy
 
@@ -282,7 +283,6 @@ def _generate_atomics_system(model):
     """
     # coordinates is list
 
-
     relations = model.equations
     # parameters is a set
 
@@ -370,21 +370,15 @@ def merge_coordinates(*pairs):
         Control: 0,
     }
 
-    new_parameters = []
+    old_parameters = OrderedSet()
 
-    def _get_param_index(p):
-        values = [P.value for P in new_parameters]
-        if p.value is None or p.value not in values:
-            idx = len(new_parameters)
-            param = Parameter(f"k_{idx}", value=p.value)
-            new_parameters.append(param)
-        else:
-            idx = values.index(p.value)
-        return idx
+    for _, params in pairs:
+        old_parameters |= OrderedSet(params)
 
     x_projectors = {}
     p_projectors = {}
     logger.info("Merging coordinates..")
+
     for index, (coords, params) in enumerate(pairs):
         x_inverse = {}
         p_inverse = {}
@@ -397,7 +391,7 @@ def merge_coordinates(*pairs):
         # them
 
         for old_p_index, p in enumerate(params):
-            p_idx = _get_param_index(p)
+            p_idx = old_parameters.index(p)
             p_inverse.update({p_idx: old_p_index})
 
         for idx, x in enumerate(coords):
@@ -424,7 +418,7 @@ def merge_coordinates(*pairs):
         }
 
     projectors = [(x_projectors[i], p_projectors[i]) for i in x_projectors]
-    return (new_coordinates, new_parameters), projectors
+    return (new_coordinates, list(old_parameters)), projectors
 
 
 def merge_systems(*systems):
@@ -520,19 +514,19 @@ def generate_system_from(model):
 
     system, maps = merge_systems(*systems.values())
 
-    map_dictionary = {c: M for c, M in zip(systems.keys(), maps)}
+    map_dictionary = {c: M for c, (M,_) in zip(systems.keys(), maps)}
 
     L_bonds = sympy.SparseMatrix(2*len(model.bonds), system.L.cols, {})
 
     # Add the bonds:
     for row, (head_port, tail_port) in enumerate(model.bonds):
         # 1. Get the respective systems
-        X_head = systems[head_port.component][0]
+        X_head = systems[head_port.component].X
         head_to_local_map = {
             j: i for i, j in map_dictionary[head_port.component].items()
         }
 
-        X_tail = systems[tail_port.component][0]
+        X_tail = systems[tail_port.component].X
 
         tail_to_local_map = {
             j: i for i, j in map_dictionary[tail_port.component].items()

@@ -5,7 +5,6 @@ from BondGraphTools import *
 from BondGraphTools.config import config
 from BondGraphTools.exceptions import ModelException
 from BondGraphTools.sim_tools import simulate, to_julia_function_string
-from BondGraphTools.model_reduction import inverse_coord_maps
 
 @pytest.mark.slow
 def test_c_sim_fail():

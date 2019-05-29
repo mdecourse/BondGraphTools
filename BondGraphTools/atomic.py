@@ -11,12 +11,12 @@ import sympy as sp
 
 logger = logging.getLogger(__name__)
 
-
 _symbolics = sp.Expr, sp.Symbol
 
 
 def _is_symbolic_const(value):
     return isinstance(value, _symbolics)
+
 
 class Atomic(BondGraphBase, PortManager):
     """
@@ -36,7 +36,7 @@ class Atomic(BondGraphBase, PortManager):
         self._output_vars = outputs
 
         self.view = Glyph(self)
-        self._constitutive_relations = constitutive_relations
+        self._equations = constitutive_relations
 
     def __eq__(self, other):
         return self.__dict__ == self.__dict__
@@ -103,84 +103,46 @@ class Atomic(BondGraphBase, PortManager):
     @property
     def constitutive_relations(self):
         """See `BondGraphBase`"""
-        models = self._build_relations()
-        # for var in self.state_vars:
-        #     var_type, port = var.split("_")
         #
-        #     if var_type == "q":
-        #         ef_var = f'f_{port}'
-        #     elif var_type == "p":
-        #         ef_var = f'e_{port}'
+        # subs = []
+        #
+        # def _value_of(v):
+        #     if isinstance(v, (int, float, complex, _symbolics)):
+        #         return v
+        #     elif not v:
+        #         raise KeyError
+        #     elif isinstance(v, str):
+        #         v_out, = v.split(" ")
+        #         return sp.S(v_out)
+        #     elif isinstance(v, dict):
+        #         return _value_of(v["value"])
         #     else:
-        #         raise ModelParsingError(
-        #             "Error parsing model %s: "
-        #             "state variable %s must be either p or q",
-        #             self.metamodel, var
-        #         )
+        #         raise ValueError(f"Invalid Parameter")
         #
-        #     models.append(sp.sympify(f"d{var} - {ef_var}"))
+        # for param, value in self.params.items():
+        #     try:
+        #         v = _value_of(value)
+        #         subs.append((sp.symbols(param), v))
+        #     except KeyError:
+        #         pass
+        #     except ValueError as ex:
+        #         raise ValueError(f"({self}, {param}): {ex.args}")
+        #
+        # return [model.subs(subs) for model in models]
 
-        subs = []
-
-        def _value_of(v):
-            if isinstance(v, (int, float, complex, _symbolics)):
-                return v
-            elif not v:
-                raise KeyError
-            elif isinstance(v, str):
-                v_out, = v.split(" ")
-                return sp.S(v_out)
-            elif isinstance(v, dict):
-                return _value_of(v["value"])
-            else:
-                raise ValueError(f"Invalid Parameter")
-
-        for param, value in self.params.items():
-            try:
-                v = _value_of(value)
-                subs.append((sp.symbols(param), v))
-            except KeyError:
-                pass
-            except ValueError as ex:
-                raise ValueError(f"({self}, {param}): {ex.args}")
-
-        return [model.subs(subs) for model in models]
-
-        # for each relation, pull out the linear part
+        return []
 
     @property
-    def basis_vectors(self):
-        """See `BondGraphBase.basis_vectors`"""
-        port_space = self._port_vectors()
-
-        tangent_space = dict()
-
-        control_space = dict()
-
-        for var in self.state_vars:
-            tangent_space[sp.symbols((var, f"d{var}"))] = (self, var)
-
-        # for port in self.ports:
-        #     if not isinstance(port, int):
-        #         continue
-        #
-        #     port_space[sp.symbols((f"e_{port}", f"f_{port}"))] = (self, port)
-
-        for control in self.control_vars:
-            control_space[sp.symbols(control)] = (self, control)
-
-        return tangent_space, port_space, control_space
-
-    def _build_relations(self):
+    def equations(self):
         rels = []
-        for string in self._constitutive_relations:
+        for string in self._equations:
 
             iloc = 0
             iloc = string.find("_i", iloc)
 
             if iloc < 0:
                 # just a plain old string; sympy can take care of it
-                rels.append(sp.sympify(string))
+                rels.append(string)
 
                 continue
 
@@ -190,9 +152,7 @@ class Atomic(BondGraphBase, PortManager):
                 # we have a vector equation here.
                 for port_id in self.ports:
                     if isinstance(port_id, int):
-                        rels.append(
-                        sp.sympify(
-                            string.replace("_i", "_{}".format(port_id))))
+                        rels.append(string.replace("_i", "_{}".format(port_id)))
             else:
 
                 tiers = 0
@@ -215,10 +175,7 @@ class Atomic(BondGraphBase, PortManager):
                          for p in self.ports if isinstance(p, int)]
                 symstr = string[0:sloc] + "(" + " + ".join(terms) + string[
                                                                     eloc:]
-
-                rels.append(
-                    sp.sympify(symstr)
-                )
+                rels.append(symstr)
 
         return [r for r in rels if r != 0]
 
@@ -275,28 +232,28 @@ class EqualEffort(BondGraphBase, PortExpander):
         return {}, self._port_vectors(), {}
 
     @property
-    def constitutive_relations(self):
-
+    def equations(self):
         vects = list(self._port_vectors())
         try:
             e_0, f_0 = vects.pop()
         except IndexError:
             raise ModelException("Model %s has no ports", self)
-        partial_sum = f_0
+        partial_sum = [f_0]
 
         relations = []
 
         while vects:
             e_i, f_i = vects.pop()
-            relations.append(
-                e_i - e_0
-            )
-            partial_sum += f_i
+            relations.append(f"{e_i} - {e_0}")
+            partial_sum.append(f_i)
 
-        relations.append(partial_sum)
+        relations.append(" + ".join(partial_sum))
 
         return relations
 
+    @property
+    def constitutive_relations(self):
+        return []
 
 class EqualFlow(BondGraphBase, PortExpander):
 
@@ -336,24 +293,50 @@ class EqualFlow(BondGraphBase, PortExpander):
                 raise InvalidPortException("You must specify a port")
 
     @property
-    def constitutive_relations(self):
-
-        relations = []
-
-        var = list(self._port_vectors().items())
+    def equations(self):
+        vects = list(self._port_vectors().items())
         try:
-            (e_0, f_0), port = var.pop()
+            e_0, f_0, port = vects.pop()
         except IndexError:
             raise ModelException("Model %s has no ports", self)
 
         sigma_0 = port.weight
-        partial_sum = sigma_0*e_0
 
-        while var:
-            (e_i, f_i), port = var.pop()
+        partial_sum = [f"{sigma_0} * {f_0}"]
+
+        relations = []
+
+        while vects:
+            e_i, f_i, port = vects.pop()
             sigma_i = port.weight
-            partial_sum += sigma_i*e_i
-            relations.append(sigma_i*f_i - sigma_0*f_0)
+            relations.append(f"{sigma_i} * {e_i} - {sigma_0} * {e_0}")
 
-        relations.append(partial_sum)
+            partial_sum.append(f"{sigma_i} * {f_i}")
+
+        relations.append(" + ".join(partial_sum))
+
         return relations
+
+    @property
+    def constitutive_relations(self):
+        #
+        # relations = []
+        #
+        # var = list(self._port_vectors().items())
+        # try:
+        #     (e_0, f_0), port = var.pop()
+        # except IndexError:
+        #     raise ModelException("Model %s has no ports", self)
+        #
+        # sigma_0 = port.weight
+        # partial_sum = sigma_0*e_0
+        #
+        # while var:
+        #     (e_i, f_i), port = var.pop()
+        #     sigma_i = port.weight
+        #     partial_sum += sigma_i*e_i
+        #     relations.append(sigma_i*f_i - sigma_0*f_0)
+        #
+        # relations.append(partial_sum)
+        # return relations
+        return []

@@ -7,7 +7,6 @@ models.
 
 import logging
 
-import sympy as sp
 
 from BondGraphTools.exceptions import InvalidPortException
 from BondGraphTools.base import Port
@@ -67,7 +66,7 @@ class PortManager(object):
 
     def _port_vectors(self):
         return {
-            sp.symbols((f"e_{port.index}", f"f_{port.index}")): port
+            (f"e_{port.index}", f"f_{port.index}"): port
             for port in self._ports
         }
 
@@ -152,7 +151,7 @@ class PortExpander(PortManager):
 
     def _port_vectors(self):
         return {
-            sp.symbols((f"e_{port.index}", f"f_{port.index}")): port
+            (f"e_{port.index}", f"f_{port.index}"): port
             for port in self._ports if port.is_connected
         }
 

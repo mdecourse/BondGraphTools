@@ -204,8 +204,6 @@ class TestGenerateParams:
         assert not Mp
         assert not Jp
 
-
-
     def test_linear(self):
 
         dummy_model = DummyModel(
@@ -531,6 +529,35 @@ class TestMergeSystems:
         assert p1_inv == {0: 0}
         assert p2_inv == {1: 0}
 
+    def test_merge_coordinates_identical_param(self):
+        p = Parameter('mu')
+        d1 = DummyModel(["dx_0 - c * x_0"], uri="d1", params={'c': p})
+        d2 = DummyModel(["dx_0 + d * x_0"], uri="d2", params={'d': p})
+        coords_1, params_1, subs_1 = _make_coords(d1)
+        coords_2, params_2, subs_2 = _make_coords(d2)
+
+        assert len(coords_1) == len(coords_2) == 2
+        assert len(params_1) == len(params_2) == 1
+        p1, = params_1
+        p2, = params_2
+
+        assert p1 == p2
+
+        args = (coords_1, params_1), (coords_2, params_2)
+
+        (coords, params), inverses = merge_coordinates(*args)
+
+        (c1_inv, p1_inv), (c2_inv, p2_inv) = inverses
+        # new - to - old mappings
+        assert len(coords) == 4
+        assert len(params) == 1
+        assert c1_inv == {0: 0, 2: 1}
+        assert c2_inv == {1: 0, 3: 1}
+        assert p1_inv == {0: 0}
+        assert p2_inv == {0: 0}
+
+
+
     def test_merge_sytem(self):
         d1 = DummyModel(["dx_0 - c * x_0"], uri="d1")
         d2 = DummyModel(["dx_0 + d * x_0"], uri="d2")
@@ -719,7 +746,10 @@ class TestMerge:
 
         assert len(c) == len(c_1) + len(c_2)
         assert len(p) == len(p_1) + len(p_2)
-        assert maps == [{0:0, 1:1, 2:2, 5:3}, {3:0, 4:1}]
+        assert maps == [
+            ({0: 0, 1: 1, 2: 2, 5: 3}, {0: 0}), \
+            ({3:0, 4:1}, {1: 0})
+        ]
 
     def test_common_param(self):
 
@@ -745,14 +775,14 @@ class TestMerge:
         system_1 = _generate_atomics_system(c)
         system_2 = _generate_atomics_system(r)
 
-        coords, params, L, M, J, maps = merge_systems(system_1, system_2)
+        system, maps = merge_systems(system_1, system_2)
 
-        assert str(coords) == "[dx_0, e_0, f_0, e_1, f_1, x_0]"
+        assert str(system.X) == "[dx_0, e_0, f_0, e_1, f_1, x_0]"
 
-        assert len(params) == 2
-        assert not M
-        assert not J
-        assert as_dict(L) == {
+        assert len(system.P) == 2
+        assert not system.M
+        assert not system.J
+        assert as_dict(system.L) == {
             0: {1: -p1, 5: 1},
             1: {0: 1, 2: -1},
             2: {3: 1, 4: -p2}
@@ -767,25 +797,25 @@ class TestMerge:
         system_1 = _generate_atomics_system(Ce)
         system_2 = _generate_atomics_system(Re)
 
-        coords, params, L, M, J, maps = merge_systems(system_1, system_2)
+        system, maps = merge_systems(system_1, system_2)
 
-        assert str(coords) == '[dx_0, e_0, f_0, e_1, f_1, e_2, f_2, x_0, u_0]'
-        assert params == {P}
-        assert as_dict(L) == {
+        assert str(system.X) == '[dx_0, e_0, f_0, e_1, f_1, e_2, f_2, x_0, u_0]'
+        assert system.P == [P]
+        assert as_dict(system.L) == {
             0: {1: 1},
             1: {0: -1, 2: 1},
             2: {4: 1, 6: 1},
             3: {4: 1}
         }
-        assert as_dict(M) == {
+        assert as_dict(system.M) == {
             0: {0: -P},
             3: {1: 1, 2: -1}
         }
-        u = coords[-1]
-        x = coords[-2]
-        e_2 = coords[3]
-        e_3 = coords[5]
-        assert J == [sympy.log(x), u*sympy.exp(e_3 / P), u*sympy.exp(e_2 / P)]
+        u = system.X[-1]
+        x = system.X[-2]
+        e_2 = system.X[3]
+        e_3 = system.X[5]
+        assert system.J == [sympy.log(x), u*sympy.exp(e_3 / P), u*sympy.exp(e_2 / P)]
 
 
 class Test_generate_system_from:

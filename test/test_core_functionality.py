@@ -94,8 +94,8 @@ class TestConnect:
 
         connect(c, se)
         bond = list(bg.bonds)[0]
-        assert isinstance(bond.tail.component, Component)
-        assert isinstance(bond.head.component, Component)
+        assert isinstance(bond.tail.component, Atomic)
+        assert isinstance(bond.head.component, Atomic)
         assert bond.head.component in (c, se)
         assert bond.tail.component in (c, se)
 
@@ -111,8 +111,8 @@ class TestConnect:
         connect(k1, k2)
 
         (c1, p1), (c2, p2) = list(bg.bonds)[0]
-        assert isinstance(c1, Component)
-        assert isinstance(c2, Component)
+        assert isinstance(c1, Atomic)
+        assert isinstance(c2, Atomic)
         assert c1 in (c, se)
         assert c2 in (c, se)
 
@@ -147,8 +147,8 @@ class TestConnect:
         connect(k1, k2)
 
         (c1, p1), (c2, p2) = list(bg.bonds)[0]
-        assert isinstance(c1, Component)
-        assert isinstance(c2, Component)
+        assert isinstance(c1, Atomic)
+        assert isinstance(c2, Atomic)
         assert c1 in (c, se)
         assert c2 in (c, se)
 
@@ -167,7 +167,7 @@ class TestConnect:
 
         for bond in bonds: connect(*bond)
 
-        comps = [{c, one}, {se, one}, {one ,r}]
+        comps = [{c, one}, {se, one}, {one, r}]
         all_comps = {c,se,r,one}
 
         for i, bond in enumerate(bg.bonds):
@@ -177,32 +177,6 @@ class TestConnect:
                 else:
                     assert component not in bond
 
-
-
-    def test_component_in_bond(self):
-        # see issues 85
-        c = new('C')
-        se = new('Se')
-        r = new('R')
-        one = new('1')
-        bg = new()
-        bg.add(c, se, r, one)
-
-        bonds = [(c, one.non_inverting),
-                 (se, one),
-                 (one, r)]
-
-        for bond in bonds: connect(*bond)
-
-        comps = [{c, one}, {se, one}, {one ,r}]
-        all_comps = {c,se,r,one}
-
-        for i, bond in enumerate(bg.bonds):
-            for component in all_comps:
-                if component in comps[i]:
-                    assert component in bond
-                else:
-                    assert component not in bond
 
 def test_disconnect_ports():
 
@@ -411,7 +385,6 @@ class TestSwap:
         assert len(bg.state_vars) == 0
         assert len(bg.control_vars) == 1
 
-
         assert bg.bonds == [
             (r_p, z0),
             (sf_port, z1)
@@ -421,7 +394,6 @@ class TestSwap:
         assert Sf in bg.components
 
         swap(Sf, c)
-
 
         assert bg.bonds == [
             (r_p, z0),

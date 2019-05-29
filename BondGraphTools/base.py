@@ -2,7 +2,7 @@
 """
 import logging
 from collections import namedtuple
-
+from BondGraphTools.model_reduction.model_reduction import generate_system_from
 logger = logging.getLogger(__name__)
 
 

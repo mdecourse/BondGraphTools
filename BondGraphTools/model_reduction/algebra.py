@@ -4,7 +4,6 @@ Symbolic Algebra Helper functions.
 """
 
 import sympy
-from BondGraphTools.model_reduction.symbols import BondGraphVariables
 
 __all__ = [
     "permutation",
