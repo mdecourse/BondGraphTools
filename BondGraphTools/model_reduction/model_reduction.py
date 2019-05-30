@@ -1,18 +1,54 @@
-from collections import namedtuple
 from ordered_set import OrderedSet
 import logging
 import sympy
 
 from BondGraphTools.model_reduction.algebra import *
 from BondGraphTools.model_reduction.symbols import *
-from BondGraphTools.exceptions import SymbolicException
-
+from BondGraphTools.exceptions import SymbolicException, InversionError
+from BondGraphTools.base import Bond, BondGraphBase
 logger = logging.getLogger(__name__)
-
-DAE = namedtuple("DAE", ["X", "P", "L", "M", "J"])
 
 
 class System(object):
+    """A Dynamical Systems Model
+
+    This class describes a set of differential algebraic equations of the
+    form $$LX + M J(X) = 0$$
+
+    Where
+    - $X$ is a list of coordinates (length $n$)
+    - $L$ is a $m \times n$ matrix
+    - $M$ is a $m \times k$ matrix
+    - $J(X)$ is a vector field from $J: X\rightarrow \mathbb{R}^k$
+
+    The coordinates are ordered such that
+    $ X = [y, \dot{x}, e, f, x, u].$
+
+    Here:
+    - $y$ are output variables and instances of `Output`.
+    - $\dot{x}$ rates-of-change of state variables and instances of `DVariable`
+    - $e$, $f$ are algebraic constraints and instances of `Effort` and `Flow`
+      respectively
+    - $x$ are the state variables and instances of `Variable`
+    - $u$ are control variables and instances of `Control`
+
+
+    Attributes:
+        X: Coordinates
+        P: Parameters
+        L: Linear matrix
+        M: Nonlinear dependence matrix
+        J: Nonlinear terms
+
+
+    Args:
+        coordinates (`list` of `BondGraphVariables`): $X$
+        parameters (`list` of `Parameter`): $P$
+        linear_matrix (`sympy.SparseMatrix`): $L$
+        nonlinear_matrix (`sympy.SparseMatrix`): $M$
+        nonlinear_terms (`list` of `sympy.Expr`): $J$
+    """
+
     __slots__ = ["X", "P", "L", "M", "J"]
 
     def __init__(self,
@@ -30,6 +66,27 @@ class System(object):
     def __iter__(self):
         for t in (self.X, self.P, self.L, self.M, self.J):
             yield t
+
+    def __call__(self,
+                 row=None):
+        """Evaluates the matrix expression
+
+        Calling this class evaluates the left hand side of
+        $ LX + MJ(X) = 0 $ to produce a vector of symbolic
+        expressions
+
+        Args:
+            row (optional `int`): Evaulates the specified row
+
+        Returns: sympy.Matrix
+
+        """
+        x_vect = sympy.SparseMatrix(len(self.X), 1, self.X)
+        J_vect = sympy.SparseMatrix(len(self.J), 1, self.J)
+        if row is None:
+            return self.L * x_vect + self.M * J_vect
+        else:
+            return self.L[row, :] * x_vect + self.M[row, :] * J_vect
 
 
 def as_dict(sparse_matrix):
@@ -269,16 +326,14 @@ def _make_coords(model):
     return coordinates, params, namespace
 
 
-def _generate_atomics_system(model):
-    """
+def generate_system_from_atomic(model):
+    """Generates a dynamical systems representation of the model.
     Args:
-          model: Instance of `BondGraphBase` from which to generate matrix
-                 equation.
+          model: Instance of `BondGraphTools.Atomic` from which to generate
+                 a system model.
 
-    Returns:
-        tuple $(coordinates, parameters, L, M, J)$
-
-    Such that $L_pX + M_p*J(X) = 0$.
+    Returns: (`System`)
+        The system model.
 
     """
     # coordinates is list
@@ -494,43 +549,37 @@ def merge_systems(*systems):
     return System(coords, params, L, M, J), maps
 
 
-def generate_system_from(model):
-    """Generates an implicit dynamical system from an instance of
-    `BondGraphBase`.
+def merge_bonds(system: System,
+                bonds: list,
+                inverse_maps: dict):
+    """Merges inplace a list of bonds into the system model.
 
     Args:
-        model:
+        system: The system to which the bonds belong
+        bonds: A list of Bonds connecting sub-component ports
+        inverse_maps: A dict of tuples containing the local coordinates of each,
+                      sub-component and a projection from the system level
+                      coordinates to the local coordinates, index by the
+                      Bond graph model.
 
-    Returns:
+    This method is called to in order to bonds into algebraic constraints on
+    by adding rows to the linear part of the system model.
+
+    See Also: `merge_systems`
 
     """
-    try:
-        systems = {
-            component: generate_system_from(component)
-            for component in model.components
-        }
-    except AttributeError:
-        return _generate_atomics_system(model)
 
-    system, maps = merge_systems(*systems.values())
-
-    map_dictionary = {c: M for c, (M,_) in zip(systems.keys(), maps)}
-
-    L_bonds = sympy.SparseMatrix(2*len(model.bonds), system.L.cols, {})
+    L_bonds = sparse_zero(2 * len(bonds), system.L.cols)
 
     # Add the bonds:
-    for row, (head_port, tail_port) in enumerate(model.bonds):
+    for row, (head_port, tail_port) in enumerate(bonds):
         # 1. Get the respective systems
-        X_head = systems[head_port.component].X
-        head_to_local_map = {
-            j: i for i, j in map_dictionary[head_port.component].items()
-        }
+        X_head, head_proj = inverse_maps[head_port.component]
+        X_tail, tail_proj = inverse_maps[tail_port.component]
 
-        X_tail = systems[tail_port.component].X
+        head_to_local_map = {j: i for i, j in head_proj.items()}
+        tail_to_local_map = {j: i for i, j in tail_proj.items()}
 
-        tail_to_local_map = {
-            j: i for i, j in map_dictionary[tail_port.component].items()
-        }
         # 2. Find the respetive pairs of coorindates.
         e_1, = [tail_to_local_map[i] for i, x in enumerate(X_tail)
                 if x.index == tail_port.index and isinstance(x, Effort)]
@@ -548,17 +597,7 @@ def generate_system_from(model):
         L_bonds[2 * row + 1, f_2] = 1
 
     system.L = system.L.col_join(L_bonds)
-
-    return system
-
-
-def sparse_eye(n):
-    """Returns a sparse representation of the identity matrix"""
-    return sympy.SparseMatrix(n, n, {(i, i): 1 for i in range(n)})
-
-
-class InversionError(SymbolicException):
-    pass
+    system.M = system.M.col_join(sparse_zero(2 * len(bonds), system.M.cols))
 
 
 def _replace_row(system, row, eqn):
@@ -853,3 +892,4 @@ def reduce(system):
     _normalise(system)
     _reduce_constraints(system)
     _simplify_nonlinear_terms(system)
+

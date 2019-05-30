@@ -11,8 +11,19 @@ __all__ = [
     "adjacency_to_dict",
     "smith_normal_form",
     "flatten",
-    "solve_implicit"
+    "solve_implicit",
+    "sparse_zero",
+    "sparse_eye"
 ]
+
+def sparse_eye(n):
+    """Returns a sparse representation of the identity matrix"""
+    return sympy.SparseMatrix(n, n, {(i, i): 1 for i in range(n)})
+
+
+def sparse_zero(rows, cols):
+    """ Returns a sparse matrix of the required size."""
+    return sympy.SparseMatrix(rows, cols, {})
 
 
 def permutation(vector, key=None):
@@ -82,7 +93,7 @@ def smith_normal_form(matrix, augment=None):
         complement that is, for a matrix M,
         P = _smith_normal_form(M) is a projection operator onto the nullspace of M
     """
-    if augment:
+    if augment is not None:
         M = matrix.row_join(augment)
         k = augment.cols
     else:
@@ -91,17 +102,29 @@ def smith_normal_form(matrix, augment=None):
     rows = matrix.cols
 
     M = M.rref(pivots=False)
-    M = M.col_join(
-        sympy.SparseMatrix(matrix.cols - matrix.rows, M.cols, {})
-    )
+    delta_rows = matrix.cols - matrix.rows
+
+    # Try to make the matrix square
+    if delta_rows < 0:
+        this_row = 0
+        while this_row < M.rows and delta_rows < 0:
+            if M[this_row, :].is_zero:
+                M.row_del(this_row)
+                delta_rows += 1
+            else:
+                this_row += 1
+
+    elif delta_rows > 0:
+        M = M.col_join(sparse_zero(delta_rows, M.cols))
 
     for row in reversed(range(rows)):
-        pivot_col = next((col for col in range(rows) if M[row, col] != 0), -1)
 
+        pivot_col = next((col for col in range(rows) if col < M.cols
+                          and M[row, col] != 0), -1)
         if pivot_col > 0:
             M.row_swap(row, pivot_col)
 
-    if augment:
+    if augment is not None:
         return M[:, :-k], M[:, -k:]
     else:
         return M

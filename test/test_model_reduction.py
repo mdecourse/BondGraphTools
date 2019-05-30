@@ -9,7 +9,7 @@ from BondGraphTools.model_reduction import parse_relation
 from BondGraphTools import new, connect
 import sympy
 from BondGraphTools.model_reduction.model_reduction import (
-    _make_coords, _generate_atomics_system, _normalise, _reduce_constraints,
+    _make_coords, generate_system_from_atomic, _normalise, _reduce_constraints,
     _invert_row, _replace_row, _reduce_row, _simplify_nonlinear_terms,
     _substitute_and_reduce)
 from BondGraphTools.model_reduction.symbols import *
@@ -214,7 +214,7 @@ class TestGenerateParams:
         #    [-1,  0,  0,  0,  1,  0,  0],
         #    [ 0, -k,  0,  0,  0,  0,  1]
 
-        X, P, L, M, J = _generate_atomics_system(dummy_model)
+        X, P, L, M, J = generate_system_from_atomic(dummy_model)
         assert str(X) == "[dx_0, e_0, f_0, e_1, f_1, x_0, u_0]"
         k = next(p for p in P)
         assert isinstance(k, Parameter)
@@ -253,7 +253,7 @@ class TestGenerateParams:
 
         # resulting J should be x_0^2
 
-        X, P, L, M, J = _generate_atomics_system(dummy_model)
+        X, P, L, M, J = generate_system_from_atomic(dummy_model)
 
         assert len(X) == 4
 
@@ -276,7 +276,7 @@ class TestNormalise:
         dummy_model = DummyModel(
             ["f_0 - x_0^2", "dx_0 - e_0"]
         )
-        system = _generate_atomics_system(dummy_model)
+        system = generate_system_from_atomic(dummy_model)
 
         X, P, L, M, J = system
         assert L.row_list() == [
@@ -307,7 +307,7 @@ class TestModelReduction:
         ]
 
         model = DummyModel(eqns)
-        system = generate_system_from(model)
+        system = generate_system_from_atomic(model)
         _normalise(system)
         # want to replace row 5 with
         k = list(system.P)[0]
@@ -329,7 +329,7 @@ class TestModelReduction:
         ]
 
         model = DummyModel(eqns)
-        system = generate_system_from(model)
+        system = generate_system_from_atomic(model)
         _normalise(system)
         # X = [dx_0, e_0, f_0, x_0, u_0]
         _, e_0, f_0, _, u_0 = system.X
@@ -357,7 +357,7 @@ class TestModelReduction:
         ]
 
         model = DummyModel(eqns)
-        system = generate_system_from(model)
+        system = generate_system_from_atomic(model)
         _normalise(system)
 
     def test_reduce_constraints(self):
@@ -368,7 +368,7 @@ class TestModelReduction:
         ]
 
         model = DummyModel(eqns)
-        system = generate_system_from(model)
+        system = generate_system_from_atomic(model)
         _normalise(system)
         _reduce_constraints(system)
 
@@ -388,7 +388,7 @@ class TestModelReduction:
         ]
 
         model = DummyModel(eqns)
-        system = generate_system_from(model)
+        system = generate_system_from_atomic(model)
         _normalise(system)
         assert system.L[1, :].is_zero
         _reduce_constraints(system)
@@ -426,7 +426,7 @@ class TestModelReduction:
         ]
 
         model = DummyModel(eqns)
-        system = generate_system_from(model)
+        system = generate_system_from_atomic(model)
         _normalise(system)
         _reduce_constraints(system)
         p, = system.P
@@ -449,7 +449,7 @@ class TestModelReduction:
 
         model = DummyModel(eqns)
 
-        system = generate_system_from(model)
+        system = generate_system_from_atomic(model)
         reduce(system)
 
         X, P, L, M, J = system
@@ -562,8 +562,8 @@ class TestMergeSystems:
         d1 = DummyModel(["dx_0 - c * x_0"], uri="d1")
         d2 = DummyModel(["dx_0 + d * x_0"], uri="d2")
 
-        s1 = generate_system_from(d1)
-        s2 = generate_system_from(d2)
+        s1 = generate_system_from_atomic(d1)
+        s2 = generate_system_from_atomic(d2)
         system, maps = merge_systems(s1, s2)
 
         assert len(system.X) == 4
@@ -688,7 +688,7 @@ class TestGenerateSystem:
         # M -> Matrix for nonlinear terms
         # JX - > nonlinear terms
 
-        X, P, L , M , JX = _generate_atomics_system(model)
+        X, P, L , M , JX = generate_system_from_atomic(model)
         assert len(X) == 2
         assert not P
         assert not M
@@ -702,7 +702,7 @@ class TestGenerateSystem:
         C = Parameter('C', value=10)
         model = new("C", value=C)
 
-        X, P, L, M, JX = _generate_atomics_system(model)
+        X, P, L, M, JX = generate_system_from_atomic(model)
         assert len(X) == 4
         assert len(P) == 1
         assert not M
@@ -718,7 +718,7 @@ class TestGenerateSystem:
 
     def test_se(self):
         se = new("Se")
-        X, P, L, M, JX = _generate_atomics_system(se)
+        X, P, L, M, JX = generate_system_from_atomic(se)
 
         assert str(X) == "[f, e_0, f_0, e]"
         assert not P
@@ -772,8 +772,8 @@ class TestMerge:
         p2 = Parameter('R')
         c = new("C", value=p1)
         r = new("R", value=p2)
-        system_1 = _generate_atomics_system(c)
-        system_2 = _generate_atomics_system(r)
+        system_1 = generate_system_from_atomic(c)
+        system_2 = generate_system_from_atomic(r)
 
         system, maps = merge_systems(system_1, system_2)
 
@@ -794,8 +794,8 @@ class TestMerge:
         K = 1
         Ce = new("Ce", library="BioChem", value={"R": P, "T": 1, "k": K})
         Re = new("Re", library="BioChem", value={"R": P, "T": 1, "r": None})
-        system_1 = _generate_atomics_system(Ce)
-        system_2 = _generate_atomics_system(Re)
+        system_1 = generate_system_from_atomic(Ce)
+        system_2 = generate_system_from_atomic(Re)
 
         system, maps = merge_systems(system_1, system_2)
 
@@ -831,7 +831,7 @@ class Test_generate_system_from:
         connect(c, j)
         connect(r, j)
 
-        coords, params, L, M, J = generate_system_from(model)
+        coords, params, L, M, J = model.system_model
 
         assert len(coords) == 10
         assert len(params) == 2

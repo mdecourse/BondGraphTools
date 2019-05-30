@@ -27,3 +27,6 @@ class SymbolicException(Exception):
 
 class SolverException(Exception):
     """Exception for issues running numerical solving."""
+
+class InversionError(SymbolicException):
+    """Exception when an equation cannot be symbolically inverted"""

@@ -3,11 +3,13 @@ cannot be decomposed into other components.
 """
 
 import logging
+import sympy as sp
+
 from BondGraphTools.base import BondGraphBase
 from BondGraphTools.exceptions import InvalidPortException, ModelException
 from BondGraphTools.view import Glyph
 from BondGraphTools.port_managers import PortManager, PortExpander
-import sympy as sp
+from BondGraphTools.model_reduction import generate_system_from_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +21,10 @@ def _is_symbolic_const(value):
 
 
 class Atomic(BondGraphBase, PortManager):
-    """
-    Atomic bond graph components are those defined by constitutive relations.
+    """Base class for models not able to be decomposed.
+
+    See Also:
+        BondGraphBase, PortManager
     """
 
     def __init__(self, metamodel, constitutive_relations,
@@ -77,13 +81,8 @@ class Atomic(BondGraphBase, PortManager):
             out.append(p)
         return out
 
-    # @property
-    # def max_ports(self):
-    #     return len(self._ports)
-
     @property
     def params(self):
-        """See `BondGraphBase`"""
         return self._params if self._params else {}
 
     def set_param(self, param, value):
@@ -99,38 +98,6 @@ class Atomic(BondGraphBase, PortManager):
     def state_vars(self):
         """See `BondGraphBase`"""
         return self._state_vars if self._state_vars else []
-
-    @property
-    def constitutive_relations(self):
-        """See `BondGraphBase`"""
-        #
-        # subs = []
-        #
-        # def _value_of(v):
-        #     if isinstance(v, (int, float, complex, _symbolics)):
-        #         return v
-        #     elif not v:
-        #         raise KeyError
-        #     elif isinstance(v, str):
-        #         v_out, = v.split(" ")
-        #         return sp.S(v_out)
-        #     elif isinstance(v, dict):
-        #         return _value_of(v["value"])
-        #     else:
-        #         raise ValueError(f"Invalid Parameter")
-        #
-        # for param, value in self.params.items():
-        #     try:
-        #         v = _value_of(value)
-        #         subs.append((sp.symbols(param), v))
-        #     except KeyError:
-        #         pass
-        #     except ValueError as ex:
-        #         raise ValueError(f"({self}, {param}): {ex.args}")
-        #
-        # return [model.subs(subs) for model in models]
-
-        return []
 
     @property
     def equations(self):
@@ -182,16 +149,17 @@ class Atomic(BondGraphBase, PortManager):
     def __hash__(self):
         return super().__hash__()
 
+    @property
+    def system_model(self):
+        return generate_system_from_atomic(self)
+
 
 class SymmetricAtomic(Atomic):
-    """
-    Refer to `Atomic`.
-
-    Instances of this class are multi-port components which are able to have
-    connections made without specifying ports.
+    """Fixed Multi-port components that are port agnostic.
+    See Also:
+          Atomic
     """
     def get_port(self, port=None):
-        """See `Atomict`"""
         if not port and not isinstance(port, int):
             p = [port for port in self.ports if not port.is_connected]
 
@@ -204,15 +172,8 @@ class SymmetricAtomic(Atomic):
 
 
 class EqualEffort(BondGraphBase, PortExpander):
-    """Implements 0-junction.
+    """Implements 0-junction."""
 
-    Attributes:
-         template:
-         view:
-         basis_vectors:
-         constitutive_relations:
-
-    """
     def __init__(self, **kwargs):
 
         PortExpander .__init__(self, {None: None})
@@ -252,11 +213,24 @@ class EqualEffort(BondGraphBase, PortExpander):
         return relations
 
     @property
-    def constitutive_relations(self):
-        return []
+    def system_model(self):
+        return generate_system_from_atomic(self)
+
 
 class EqualFlow(BondGraphBase, PortExpander):
+    """Implements the Equal Flow 1-junction
 
+    Attributes:
+         non_inverting: PortTemplate for the non-inverting port
+         inverting: PortTemplate for the inverting port.
+
+    Inverting ports correspond to those with 'outwards pointing' bonds.
+    This is required as equal flow junctions are not invariant with respect to
+    bond orientation.
+
+    See Also:
+        PortExpander, BondGraphBase
+    """
     def __init__(self, **kwargs):
         PortExpander.__init__(self, {"non_inverting": {"weight": 1},
                                      "inverting": {"weight": -1}})
@@ -318,25 +292,5 @@ class EqualFlow(BondGraphBase, PortExpander):
         return relations
 
     @property
-    def constitutive_relations(self):
-        #
-        # relations = []
-        #
-        # var = list(self._port_vectors().items())
-        # try:
-        #     (e_0, f_0), port = var.pop()
-        # except IndexError:
-        #     raise ModelException("Model %s has no ports", self)
-        #
-        # sigma_0 = port.weight
-        # partial_sum = sigma_0*e_0
-        #
-        # while var:
-        #     (e_i, f_i), port = var.pop()
-        #     sigma_i = port.weight
-        #     partial_sum += sigma_i*e_i
-        #     relations.append(sigma_i*f_i - sigma_0*f_0)
-        #
-        # relations.append(partial_sum)
-        # return relations
-        return []
+    def system_model(self):
+        return generate_system_from_atomic(self)

@@ -6,12 +6,14 @@ from BondGraphTools.config import config
 from BondGraphTools.exceptions import ModelException
 from BondGraphTools.sim_tools import simulate, to_julia_function_string
 
+
 @pytest.mark.slow
 def test_c_sim_fail():
 
     c = new("C")
     with pytest.raises(ModelException):
         t, x = simulate(c, timespan=[0, 1], x0=[1],dx0=[1])
+
 
 @pytest.mark.slow
 def test_c_se_build_ode():
@@ -38,6 +40,7 @@ def test_c_se_build_ode():
     assert func(0, 0, 0, 0) == -1
     assert func(2, 0, 0, 0) == 1
     assert func(0, 2, 0, 0) == 1
+
 
 @pytest.mark.slow
 def test_c_se_sim():
@@ -74,6 +77,7 @@ def test_c_se_sim():
 
     assert ((x - solution) < 0.001).all()
 
+
 @pytest.mark.slow
 def test_c_se_sum_switch():
     c = new("C", value=1)
@@ -94,6 +98,7 @@ def test_c_se_sum_switch():
     )
 
     assert (x[0, -1] - 1) < 0.001
+
 
 @pytest.mark.skip
 @pytest.mark.slow

@@ -31,8 +31,6 @@ def test_zero_junction_relations():
     assert sympy.sympify("f_0 + f_1 + f_2") in rels
 
 
-
-
 def test_build_model_fixed_cap():
     c = new("C", value=0.001)
 

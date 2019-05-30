@@ -2,27 +2,16 @@
 """
 import logging
 from collections import namedtuple
-from BondGraphTools.model_reduction.model_reduction import generate_system_from
+from abc import ABC, abstractmethod
 logger = logging.getLogger(__name__)
 
 
-class BondGraphBase(object):
-    """
-    Base class definition for all bond graphs.
-
-    Attributes:
-        parent:
-        name:
-        metamodel:
-        template:
-        uri:
-        root:
-        basis_vectors:
+class BondGraphBase(ABC):
+    """Abstract base class definition for all bond graphs.
 
     Args:
-        name: Assumed to be unique
-        parent:
-        metadata (dict):
+        name (`str`): Assumed to be unique
+        parent (`BondGraphBase` or None): The parent of this model.
     """
     def __init__(self,
                  name=None,
@@ -31,7 +20,6 @@ class BondGraphBase(object):
                  **kwargs):
 
         # TODO: This is a dirty hack
-        # Job for meta classes maybe?
         if not metamodel:
             self.__metamodel = "BG"
         else:
@@ -69,7 +57,7 @@ class BondGraphBase(object):
     @property
     def params(self):
         """A `dict` of parameters associated with this bond graph"""
-        raise NotImplementedError
+        return []
 
     @property
     def state_vars(self):
@@ -87,8 +75,26 @@ class BondGraphBase(object):
         return []
 
     @property
+    @abstractmethod
+    def equations(self):
+        """A list of str of base equations for the model"""
+        raise NotImplementedError
+
+    @property
     def constitutive_relations(self):
         """The `list` of equations governing the behaviour of this model"""
+
+        equations = [eq.symplify() for eq in self.system_model()]
+
+        return [eq for eq in equations if eq != 0]
+
+    @property
+    @abstractmethod
+    def system_model(self):
+        """System model of this component.
+
+        See Also: BondGraphTools.model_reduction.System
+        """
         raise NotImplementedError
 
     @property
@@ -97,6 +103,7 @@ class BondGraphBase(object):
         return self.__metamodel
 
     @property
+    @abstractmethod
     def template(self):
         """The template from which this model was generated"""
         raise NotImplementedError
@@ -114,7 +121,7 @@ class BondGraphBase(object):
     @property
     def root(self):
         """Returns the outer-most composite model. As models are organised in
-        a tree-like manner root finds the instance of :cls:`BondGraphBase`
+        a tree-like manner root finds the instance of `BondGraphBase`
         inside which this model lives."""
         if not self.parent:
             return self
