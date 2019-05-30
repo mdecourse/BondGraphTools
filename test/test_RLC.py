@@ -9,6 +9,7 @@ def test_build(rlc):
     assert len(rlc.state_vars) == 2
     assert len(rlc.ports) == 0
 
+
 def test_build_rlc():
     r = bgt.new("R", value=1)
     l = bgt.new("I", value=1)
@@ -64,26 +65,9 @@ def test_rlc_con_rel(rlc):
 
     eq = rlc.equations
 
-    assert len(eq) == 1
+    assert len(eq) == 2
     assert 'dx_0 - x_1' in eq
-    assert 'd_x1 + x_0 + x_1' in eq
-
-
-def test_tf():
-    l = bgt.new("I", value=1)
-    c = bgt.new("C", value=1)
-    tf = bgt.new("TF", value=0.5)
-    tflc = bgt.new()
-    tflc.add([tf,l, c])
-
-
-
-    bgt.connect(l, (tf, 1))
-    bgt.connect(c, (tf, 0))
-
-    c,m,lp,nlp,const = tflc.system_model()
-    assert nlp.is_zero
-    assert const ==[]
+    assert 'dx_1 + x_0 + x_1' in eq
 
 
 def test_se():
@@ -92,7 +76,7 @@ def test_se():
     c = bgt.new('C', value=1)
     vc = bgt.new()
     vc.add([Se, c])
-    assert Se.equations == ["e_0 - 1"]
+    assert Se.equations == ["e_0 - e", 'f_0 + f']
     bgt.connect(Se, c)
 
     assert vc.equations == ["dx_0", "x_0 - 1"]

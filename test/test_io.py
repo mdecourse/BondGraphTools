@@ -8,7 +8,7 @@ import BondGraphTools.fileio as dm
 import logging
 
 file_path = pathlib.Path(__file__).parent / 'files'
-logging.basicConfig(level=logging.DEBUG)
+# logging.basicConfig(level=logging.DEBUG)
 
 
 def test_load_rlc():

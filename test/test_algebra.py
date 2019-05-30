@@ -2,7 +2,6 @@ import pytest
 
 
 import logging
-logging.basicConfig(level=logging.INFO)
 import sympy
 import BondGraphTools as bgt
 from BondGraphTools import connect

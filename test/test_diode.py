@@ -17,8 +17,7 @@ def test_diode_model():
 
     d = bgt.new("Di", library="elec", value=[1, 1, 1])
 
-    assert d.basis_vectors
     assert not d.control_vars
 
-    assert d.constitutive_relations[0] == sp.sympify('f_0 - exp(e_0) +1')
+    assert d.equations[0] == 'f_0 - exp(e_0) +1'
 

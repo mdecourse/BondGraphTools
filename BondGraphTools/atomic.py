@@ -252,10 +252,6 @@ class EqualFlow(BondGraphBase, PortExpander):
         return "base/1"
 
     @property
-    def basis_vectors(self):
-        return {},  self._port_vectors(), {}
-
-    @property
     def params(self):
         return []
 
@@ -270,7 +266,7 @@ class EqualFlow(BondGraphBase, PortExpander):
     def equations(self):
         vects = list(self._port_vectors().items())
         try:
-            e_0, f_0, port = vects.pop()
+            (e_0, f_0), port = vects.pop()
         except IndexError:
             raise ModelException("Model %s has no ports", self)
 
@@ -281,7 +277,7 @@ class EqualFlow(BondGraphBase, PortExpander):
         relations = []
 
         while vects:
-            e_i, f_i, port = vects.pop()
+            (e_i, f_i), port = vects.pop()
             sigma_i = port.weight
             relations.append(f"{sigma_i} * {e_i} - {sigma_0} * {e_0}")
 

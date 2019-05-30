@@ -3,6 +3,7 @@
 import logging
 from collections import namedtuple
 from abc import ABC, abstractmethod
+from sympy import simplify
 logger = logging.getLogger(__name__)
 
 
@@ -84,7 +85,7 @@ class BondGraphBase(ABC):
     def constitutive_relations(self):
         """The `list` of equations governing the behaviour of this model"""
 
-        equations = [eq.symplify() for eq in self.system_model()]
+        equations = [simplify(eq) for eq in self.system_model()]
 
         return [eq for eq in equations if eq != 0]
 

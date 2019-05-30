@@ -210,12 +210,10 @@ class Composite(BondGraphBase, LabeledPortManager):
     @property
     def system_model(self):
         if not self.components:
-            raise ModelException("Model has no components")
+            return None
 
         systems = {component: component.system_model
                    for component in self.components}
-
-
 
         system, maps = merge_systems(*systems.values())
 

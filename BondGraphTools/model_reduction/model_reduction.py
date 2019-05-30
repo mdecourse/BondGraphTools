@@ -9,6 +9,8 @@ from BondGraphTools.base import Bond, BondGraphBase
 logger = logging.getLogger(__name__)
 
 
+_state_var = (DVariable, Variable, Output, Control)
+
 class System(object):
     """A Dynamical Systems Model
 
@@ -81,12 +83,63 @@ class System(object):
         Returns: sympy.Matrix
 
         """
-        x_vect = sympy.SparseMatrix(len(self.X), 1, self.X)
-        J_vect = sympy.SparseMatrix(len(self.J), 1, self.J)
+        reduce(self)
+
         if row is None:
-            return self.L * x_vect + self.M * J_vect
+            return self._render_eqns()
         else:
-            return self.L[row, :] * x_vect + self.M[row, :] * J_vect
+            return self._render_row(row)
+
+    def _render_row(self, row):
+        result = sum(
+            self.L[row, c] * self.X[c] for c in range(self.L.cols)
+        )
+        result += sum(
+            self.M[row, c] * self.J[c] for c in range(self.M.cols)
+        )
+
+        return result
+
+    def _render_eqns(self):
+        equations = []
+
+        for i, x in enumerate(self.X):
+            if self.L[i, i] == 1 and not isinstance(x, _state_var):
+                continue
+
+            eq = self._render_row(i)
+            sympy.simplify(eq)
+            if eq != 0:
+                equations.append(eq)
+
+        return equations
+
+    @property
+    def nonlinear_variables(self):
+        atoms = {}
+        variables = set(self.X)
+        for term in self.J:
+            atoms |= (term.atoms() & variables)
+
+        return atoms
+
+    @property
+    def is_ode(self):
+        """Returns `true` if the system is an ode"""
+
+        atoms = self.nonlinear_variables
+
+        return all(self.L[i, i] != 0 and x not in atoms
+                   for i, x in enumerate(self.X)
+                   if isinstance(x, DVariable))
+
+    @property
+    def has_constraints(self):
+        atoms = self.nonlinear_variables
+
+        return any(self.L[i, i] == 0 and x in atoms
+                   for i, x in enumerate(self.X)
+                   if isinstance(x, _state_var))
 
 
 def as_dict(sparse_matrix):
@@ -811,9 +864,11 @@ def _reduce_constraints(system):
 
     rows = []
     for row in (i for i, x in enumerate(X)
-                if not isinstance(x, (DVariable, Output))):
+                if not isinstance(x, (DVariable, Output))
+                and not M[i, :].is_zero):
 
         nonlinearity = sum(M[row, j] * J[j] for j in range(M.cols))
+
         atoms = nonlinearity.atoms() & targets
         if atoms:
             rows.append((row, atoms))

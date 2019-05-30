@@ -1,6 +1,6 @@
 import pytest
 import logging
-logging.basicConfig(level=logging.INFO)
+# logging.basicConfig(level=logging.INFO)
 from test.conftest import assert_implicit
 from sympy import SparseMatrix, sympify, symbols
 import re
