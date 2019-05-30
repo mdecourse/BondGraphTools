@@ -16,6 +16,7 @@ __all__ = [
     "sparse_eye"
 ]
 
+
 def sparse_eye(n):
     """Returns a sparse representation of the identity matrix"""
     return sympy.SparseMatrix(n, n, {(i, i): 1 for i in range(n)})
@@ -95,10 +96,9 @@ def smith_normal_form(matrix, augment=None):
     """
     if augment is not None:
         M = matrix.row_join(augment)
-        k = augment.cols
     else:
         M = matrix
-        k = 0
+
     rows = matrix.cols
 
     M = M.rref(pivots=False)
@@ -125,7 +125,7 @@ def smith_normal_form(matrix, augment=None):
             M.row_swap(row, pivot_col)
 
     if augment is not None:
-        return M[:, :-k], M[:, -k:]
+        return M[:, :M.rows], M[:, M.rows:]
     else:
         return M
 

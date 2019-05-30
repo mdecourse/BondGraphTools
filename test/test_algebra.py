@@ -126,30 +126,56 @@ def test_build_junction_dict():
 
 
 class TestSmithNormalForm(object):
-    def test_1(self):
+    def test_basic(self):
+        # basic operation
+        # [0, 0, 2]     [0, 0, 0]
+        # [0, 1, 0] ->  [0, 1, 0]
+        #               [0, 0, 1]
 
         m = sympy.SparseMatrix(2,3,{(0,2):2, (1,1):1})
         mp = smith_normal_form(m)
         assert mp.shape == (3, 3)
 
-        assert mp[2, 2] != 0
+        assert mp.row_list() == [
+            (1, 1, 1),
+            (2, 2, 1)
+        ]
 
-    def test_2(self):
+    def test_basic_2(self):
+
         matrix = sympy.eye(3)
         matrix.row_del(1)
 
-        m = smith_normal_form(matrix)
-
+        m, rem = smith_normal_form(matrix, sympy.SparseMatrix(2, 0, {}))
         diff = sympy.Matrix([[0,0,0],[0,1,0], [0,0,0]])
 
+        assert rem == sympy.SparseMatrix(3, 0, {})
         assert (sympy.eye(3) - m) == diff
 
     def test_3(self):
-        m = sympy.SparseMatrix(5,3,{(0,1):1, (1,0):1,
+        m = sympy.SparseMatrix(5,3, {(0,1):1, (1,0):1,
                                     (4,2):1})
         mp = smith_normal_form(m)
         assert mp.shape == (3, 3)
         assert (mp - sympy.eye(3)).is_zero
+
+    def test_augmented(self):
+        m = sympy.SparseMatrix(2, 3, {(0, 2): 2, (1, 1): 1})
+        aug = sympy.SparseMatrix(2, 2,{(1, 1): -1, (0, 1): 4})
+
+        mp, ap = smith_normal_form(m, aug)
+
+        assert mp.row_list() == [
+            (1, 1, 1),
+            (2, 2, 1)
+        ]
+
+        assert mp.rows == mp.cols
+
+        assert ap.row_list() == [
+            (1, 1, -1),
+            (2, 1, 2)
+        ]
 
 
 class TestImplicitInversions:

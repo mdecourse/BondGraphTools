@@ -62,23 +62,12 @@ def test_symbolic_params():
 @pytest.mark.use_fixture("rlc")
 def test_rlc_con_rel(rlc):
 
-    rel = rlc.constitutive_relations
+    eq = rlc.equations
 
-    _, v = rlc.state_vars['x_0']
+    assert len(eq) == 1
+    assert 'dx_0 - x_1' in eq
+    assert 'd_x1 + x_0 + x_1' in eq
 
-
-    if str(v) != 'q_0':
-        eq1 = sympy.sympify("dx_0 - x_1")
-        eq2 = sympy.sympify("dx_1 + x_0 + x_1")
-    else:
-        eq1 = sympy.sympify("dx_1 - x_0")
-        eq2 = sympy.sympify("dx_0+ x_0 + x_1")
-
-    for r in rel:
-        assert r in (eq1, eq2)
-
-    assert "x_0" in rlc.state_vars
-    assert "x_1" in rlc.state_vars
 
 def test_tf():
     l = bgt.new("I", value=1)
@@ -103,12 +92,11 @@ def test_se():
     c = bgt.new('C', value=1)
     vc = bgt.new()
     vc.add([Se, c])
-    assert Se.constitutive_relations == [sympy.sympify("e_0 - 1")]
+    assert Se.equations == ["e_0 - 1"]
     bgt.connect(Se, c)
 
+    assert vc.equations == ["dx_0", "x_0 - 1"]
 
-    assert vc.constitutive_relations == [sympy.sympify("dx_0"),
-                                         sympy.sympify("x_0 - 1")]
 
 def test_one():
     loop_law = bgt.new('1')
@@ -122,8 +110,6 @@ def test_one():
     bgt.connect(c, (loop_law, loop_law.inverting))
     bgt.connect(r, (loop_law, loop_law.inverting))
 
-    assert vc.constitutive_relations == [
-        sympy.sympify("dx_0 + x_0 - 1")
-    ]
+    assert vc.equations == ["dx_0 + x_0 - 1"]
 
 

@@ -837,17 +837,7 @@ class Test_generate_system_from:
         assert len(params) == 2
         assert not M
         assert not J
-        assert as_dict(L) == {
-            0: {1: -p1, 9: 1},  # C_1
-            1: {0: 1, 2: -1},   # C_2
-            2: {3: 1, 4: -p2},  # R_1
-            3: {5: 1, 7: -1},   # 0 Junction
-            4: {6: 1, 8: 1},    # 0 Junction
-            5: {1: -1, 5: 1},
-            6: {2: 1, 6: 1},
-            7: {3: -1, 7: 1},
-            8: {4: 1, 8: 1}
-        }
+        # should test L, but better to test it later in integrations
 
 
 def _assert_in(eqn, iterable):
