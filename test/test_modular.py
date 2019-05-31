@@ -68,14 +68,15 @@ def test_load_modular():
     assert len(Vs.control_vars) == 1
 
 
-
 def test_modularity():
     model_1 = load(file_path / "modular.bg")
 
     Vs = model_1 / "Vs"
     Z = model_1 / "Z"
 
+
     Vs_cr = Vs.constitutive_relations
+
     assert Vs_cr ==[sp.sympify('f_0 + u_0')]
     
     assert (set(model_1.constitutive_relations) == {

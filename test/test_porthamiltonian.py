@@ -1,6 +1,7 @@
 import BondGraphTools as bgt
 from BondGraphTools.port_hamiltonian import PortHamiltonian
 import sympy as sp
+from .helpers import *
 
 
 def test_hamiltonian():
@@ -10,10 +11,10 @@ def test_hamiltonian():
         hamiltonian
     )
 
-    assert state_vars == {"q_0": "x"}
+    assert state_vars == {"x_0": "x"}
     assert params == {"C": None, "D":None}
     assert ports == {0:None}
-    assert relations == ["-e_0 + q_0**3/D + q_0/C", "dq_0 - f_0"]
+    assert relations == ["-e_0 + x_0**3/D + x_0/C", "dx_0 - f_0"]
 
 
 def test_create_PH():
@@ -21,10 +22,9 @@ def test_create_PH():
     ph = bgt.new(component="PH", value=hamiltonian)
     assert ph.params == {"C": None, "D":None}
 
-    assert ph.state_vars == {"q_0": "x"}
+    assert ph.state_vars == {"x_0": "x"}
 
-    assert sp.sympify("-e_0 + q_0**3/D + q_0/C") in ph.constitutive_relations
-    assert sp.sympify("dq_0 - f_0") in ph.constitutive_relations
+    assert ph.equations == {"-e_0 + x_0**3/D + x_0/C", "dx_0 - f_0"}
 
     assert ph.hamiltonian == hamiltonian
     port_list = list(ph.ports)
@@ -42,13 +42,11 @@ def test_create_PH_2():
     assert ph.params == {"C": None}
 
     assert set(ph.state_vars.values()) == {"x", "y"}
-
-    for rel in ("-e_0 + q_0/(C + q_1)",
-                "dq_0 - f_0",
-                "-e_1 - q_0**2/(2*(C + q_1)**2)",
-                "dq_1 - f_1"):
-        assert sp.sympify(rel) in ph.constitutive_relations
-
+    assert sym_set_eq(ph.constitutive_relations,
+                {"e_0 - x_0/(C + x_1)",
+                 "dx_0 - f_0",
+                 "e_1 + x_0**2/(2*(C + x_1)**2)",
+                 "dx_1 - f_1"})
 
     assert ph.hamiltonian == hamiltonian
 
@@ -70,10 +68,10 @@ def test_create_PH_parameters():
     ph = bgt.new(component="PH", value=build_args)
     assert ph.params == {"C": p_1, "D": p_2}
 
-    assert ph.state_vars == {"q_0": "x"}
+    assert ph.state_vars == {"x_0": "x"}
+    assert sym_set_eq(ph.constitutive_relations,
+                      {"e_0 - x_0**3/k - x_0", "dx_0 - f_0"})
 
-    assert sp.sympify("-e_0 + q_0**3/k + q_0") in ph.constitutive_relations
-    assert sp.sympify("dq_0 - f_0") in ph.constitutive_relations
     assert ph.hamiltonian == hamiltonian
 
 
@@ -89,8 +87,7 @@ def test_create_duffing_eqn():
     bgt.connect(junct, inductor)
     bgt.connect(source, junct)
 
-    rel = model.constitutive_relations
-
-    assert sp.sympify("dx_0 + x_1 - u_0") in rel
-
-    assert sp.sympify("dx_1 - x_0**3 - x_0") in rel
+    assert sym_set_eq(
+        model.constitutive_relations,
+        {"dx_0 + x_1 - u_0", "dx_1 - x_0**3 - x_0", "y_0 - x_0**3 - x_0"}
+    )

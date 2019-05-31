@@ -64,8 +64,8 @@ class DummyModel(object):
                     self.ports.append(p)
                 elif prefix == 'u' and a not in self.control_vars:
                     self.control_vars.append(a)
-                elif prefix == 'y' and a not in self.outputs_vars:
-                    self.outputs_vars.append(a)
+                elif prefix == 'y' and a not in self.output_vars:
+                    self.output_vars.append(a)
 
 
 class TestGenerateCoords:
@@ -470,6 +470,35 @@ class TestModelReduction:
         M_test = [[0], [-1], [0], [0], [0]]
         _cmp(M, M_test)
         _cmp(L, L_test)
+
+    def test_input_ouput_system(self):
+        eqns = [
+            "y_0 - e_0",
+            "f_0 - u_0"
+        ]
+
+        test_list = []
+        model = DummyModel(eqns)
+        system = generate_system_from_atomic(model)
+
+        assert isinstance(system.X[0], Output)
+        assert isinstance(system.X[1], Effort)
+        assert isinstance(system.X[2], Flow)
+        assert isinstance(system.X[3], Control)
+
+        assert system.L.row_list() == [
+            (0, 0, 1),
+            (0, 1, -1),
+            (1, 2, 1),
+            (1, 3, -1)
+        ]
+        _normalise(system)
+        assert system.L.row_list() == [
+                (0, 0, 1),
+                (0, 1, -1),
+                (2, 2, 1),
+                (2, 3, -1)
+        ]
 
 
 class TestMergeSystems:

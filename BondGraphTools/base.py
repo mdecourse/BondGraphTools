@@ -85,9 +85,7 @@ class BondGraphBase(ABC):
     def constitutive_relations(self):
         """The `list` of equations governing the behaviour of this model"""
 
-        equations = [simplify(eq) for eq in self.system_model()]
-
-        return [eq for eq in equations if eq != 0]
+        return self.system_model()
 
     @property
     @abstractmethod

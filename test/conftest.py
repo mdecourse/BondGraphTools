@@ -38,3 +38,5 @@ def assert_implicit(eq1, eq2):
     eplus = eq1.expand() + eq2.expand()
     eminus = eq1.expand() - eq2.expand()
     assert eplus == 0 or eminus == 0
+
+

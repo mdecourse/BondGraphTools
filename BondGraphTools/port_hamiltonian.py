@@ -1,7 +1,6 @@
-
 import sympy as sp
 
-from .atomic import Atomic
+from BondGraphTools.atomic import Atomic
 
 
 class PortHamiltonian(Atomic):
@@ -76,16 +75,16 @@ class PortHamiltonian(Atomic):
             else:
                 # Need to make sure we don't mess with the co_ordinates
                 i = len(state_vars)
-                state_vars[f"q_{i}"] = str(atom)
-                subs.append((atom, sp.S(f"q_{i}")))
+                state_vars[f"x_{i}"] = str(atom)
+                subs.append((atom, sp.S(f"x_{i}")))
 
         Hx = Hx.subs(subs)
 
         for i in range(len(state_vars)):
-            q = sp.S(f"q_{i}")
+            x = sp.S(f"x_{i}")
             # todo: this is dirty, fix me
-            relations.append(str(Hx.diff(q).simplify() - sp.S(f"e_{i}")))
-            relations.append(f"d{q} - f_{i}")
+            relations.append(str(Hx.diff(x).simplify() - sp.S(f"e_{i}")))
+            relations.append(f"d{x} - f_{i}")
 
         ports = {i: None for i in range(len(state_vars))}
 

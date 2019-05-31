@@ -120,8 +120,7 @@
       },
       "params": {
         "r": {
-          "description": "Ratio",
-          "value": 1
+          "description": "Ratio"
         }
       },
       "constitutive_relations": [
@@ -143,8 +142,7 @@
       },
       "params": {
         "R": {
-          "description": "Ratio",
-          "value": 1
+          "description": "Ratio"
         }
       },
       "constitutive_relations": [

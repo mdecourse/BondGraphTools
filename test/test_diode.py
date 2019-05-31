@@ -20,4 +20,3 @@ def test_diode_model():
     assert not d.control_vars
 
     assert d.equations[0] == 'f_0 - exp(e_0) +1'
-

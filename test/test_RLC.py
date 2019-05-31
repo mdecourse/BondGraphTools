@@ -2,6 +2,7 @@ import pytest
 import sympy
 import BondGraphTools as bgt
 import BondGraphTools.sim_tools as sim
+from .helpers import *
 
 
 @pytest.mark.use_fixture("rlc")
@@ -75,13 +76,20 @@ def test_se():
     Se = bgt.new('Se', value=1)
     c = bgt.new('C', value=1)
     vc = bgt.new()
-    vc.add([Se, c])
-    assert Se.equations == ["e_0 - e", 'f_0 + f']
+    vc.add(Se, c)
     bgt.connect(Se, c)
 
-    assert vc.equations == ["dx_0", "x_0 - 1"]
+    assert not Se.control_vars
+    assert len(Se.output_vars) == 1
 
+    assert vc.output_vars == {"y_0": (Se, 'f')}
+    system = vc.system_model
+    assert isinstance(system.X[0], Output)
+    print(system.X)
+    print(system.L)
+    assert sym_set_eq(vc.constitutive_relations, {"y_0 - dx_0", "x_0 - 1"})
 
+@pytest.mark.skip
 def test_one():
     loop_law = bgt.new('1')
     Se = bgt.new('Se', value=1)
@@ -94,6 +102,6 @@ def test_one():
     bgt.connect(c, (loop_law, loop_law.inverting))
     bgt.connect(r, (loop_law, loop_law.inverting))
 
-    assert vc.equations == ["dx_0 + x_0 - 1"]
+    assert sym_set_eq(vc.constitutive_relations, {"dx_0 + x_0 - 1"})
 
 

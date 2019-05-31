@@ -10,6 +10,8 @@ logger = logging.getLogger(__name__)
 
 
 _state_var = (DVariable, Variable, Output, Control)
+_non_constant = (DVariable, Variable, Output, Control, Effort, Flow)
+
 
 class System(object):
     """A Dynamical Systems Model
@@ -90,28 +92,32 @@ class System(object):
         else:
             return self._render_row(row)
 
-    def _render_row(self, row):
+    def _render_row(self, row, is_reduced=True):
+        if not is_reduced:
+            reduce(self)
+
         result = sum(
             self.L[row, c] * self.X[c] for c in range(self.L.cols)
         )
         result += sum(
             self.M[row, c] * self.J[c] for c in range(self.M.cols)
         )
+        if not result:
+            return 0
+        else:
+            return sympy.simplify(result)
 
-        return result
+    def _render_eqns(self, is_reduced=True):
+        if not is_reduced:
+            reduce(self)
 
-    def _render_eqns(self):
         equations = []
 
         for i, x in enumerate(self.X):
-            if self.L[i, i] == 1 and not isinstance(x, _state_var):
-                continue
+            eq = sympy.simplify(self._render_row(i))
 
-            eq = self._render_row(i)
-            sympy.simplify(eq)
             if eq != 0:
                 equations.append(eq)
-
         return equations
 
     @property
@@ -391,10 +397,24 @@ def generate_system_from_atomic(model):
     """
     # coordinates is list
 
-    relations = model.equations
+    relations = [r for r in model.equations]
     # parameters is a set
 
     coordinates, parameters, namespace = _make_coords(model)
+
+    def get_constant(L, J):
+        if len(L_1) >1:
+            return set()
+        j, = L.keys()
+        x = coordinates[j]
+        if not isinstance(x, Variable):
+            return set()
+
+        if any(not all(a.is_number for a in term.atoms()) for term in J):
+            return set()
+        dx, = [c for c in coordinates if isinstance(c, DVariable)
+               and c.index == x.index]
+        return dx
 
     # Matrix for linear part.
     L = sympy.SparseMatrix(len(relations), len(coordinates), {})
@@ -402,12 +422,15 @@ def generate_system_from_atomic(model):
     # Matrix for nonlinear part {row:  {column: value }}
     M = sympy.SparseMatrix(len(relations), 0, {})
     J = []  # nonlinear terms
+    constants = set()
 
     for i, relation in enumerate(relations):
         L_1, M_1, J_1 = parse_relation(relation, coordinates,
                                        parameters, namespace)
         for j, v in L_1.items():
             L[i, j] = v
+
+        constants |= get_constant(L_1, J_1)
 
         mappings = {}
 
@@ -428,6 +451,18 @@ def generate_system_from_atomic(model):
         logger.info("Nonlinear Terms J: %s", str(J))
         for col, value in M_1.items():
             M[i, mappings[col]] = value
+
+    if constants:
+        L = L.col_join(
+            sympy.SparseMatrix(
+                len(constants),
+                len(coordinates),
+                {
+                    (i, coordinates.index(d)): 1 for i, d in enumerate(constants)
+                }
+            ))
+
+        M = M.col_join(sparse_zero(len(constants), M.cols))
 
     return System(coordinates, parameters, L, M, J)
 
@@ -635,13 +670,13 @@ def merge_bonds(system: System,
 
         # 2. Find the respetive pairs of coorindates.
         e_1, = [tail_to_local_map[i] for i, x in enumerate(X_tail)
-                if x.index == tail_port.index and isinstance(x, Effort)]
+                if isinstance(x, Effort) and x.index == tail_port.index]
         f_1, = [tail_to_local_map[i] for i, x in enumerate(X_tail)
-                if x.index == tail_port.index and isinstance(x, Flow)]
+                if isinstance(x, Flow) and x.index == tail_port.index]
         e_2, = [head_to_local_map[i] for i, x in enumerate(X_head)
-                if x.index == head_port.index and isinstance(x, Effort)]
+                if isinstance(x, Effort) and x.index == head_port.index]
         f_2, = [head_to_local_map[i] for i, x in enumerate(X_head)
-                if x.index == head_port.index and isinstance(x, Flow)]
+                if isinstance(x, Flow) and x.index == head_port.index]
 
         # 2. add as a row in the linear matrix.
         L_bonds[2 * row, e_1] = 1
@@ -845,8 +880,9 @@ def _substitute_and_reduce(system, atom, equation):
     idx = 0
     while idx < len(system.J):
         if system.J[idx] == 0:
+            _ = system.J.pop(idx)
             system.M.col_del(idx)
-            system.J.remove(idx)
+
         else:
             idx += 1
     return
@@ -945,6 +981,35 @@ def reduce(system):
     Returns: system (tuple)
     """
     _normalise(system)
-    _reduce_constraints(system)
-    _simplify_nonlinear_terms(system)
 
+    if not system.M.is_zero:
+        _reduce_constraints(system)
+        _simplify_nonlinear_terms(system)
+
+    y_rows = [i for i, x in enumerate(system.X)
+              if isinstance(x, Output)]
+    ef_rows = [i for i, x in enumerate(system.X)
+               if isinstance(x, (Effort, Flow))]
+    dx_rows = [i for i, x in enumerate(system.X)
+               if isinstance(x, DVariable)]
+
+    for y_row in y_rows:
+        for col in reversed(ef_rows):
+            v = system.L[y_row, col]
+            if v == 0:
+                continue
+
+            for dx_row in dx_rows:
+                v_x = system.L[dx_row, col]
+
+                if v_x == 0 or any(system.L[dx_row, c] != 0
+                                   for c in ef_rows if c > col):
+
+                    continue
+
+                frac = v/v_x
+                f_l = lambda l_ij, j:  l_ij - frac * system.L[dx_row, j]
+                system.L.row_op(y_row, f_l)
+                f_m = lambda m_ij, j: m_ij - frac * system.M[dx_row, j]
+                system.M.row_op(y_row, f_m)
+                break

@@ -12,7 +12,7 @@ from BondGraphTools.exceptions import *
 from BondGraphTools.view import GraphLayout
 from BondGraphTools.model_reduction import (
     merge_systems, merge_bonds, reduce)
-
+from BondGraphTools.model_reduction.symbols import *
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +72,44 @@ class Composite(BondGraphBase, LabeledPortManager):
             raise ValueError(f"Cannot find {other}")
         except ValueError:
             raise ValueError(f"Cannot find a unique {other}")
+
+    @property
+    def constitutive_relations(self):
+        if not self.components:
+            return []
+        system = self.system_model
+        reduce(system)
+
+        dependent_variables = set()
+        for term in system.J:
+            dependent_variables |= (term.atoms() & set(system.X))
+
+        # nullspace of L
+        free_variables = {
+            x for i, x in enumerate(system.X)
+            if system.L[i, i] == 0 and x not in dependent_variables
+        }
+
+        equations = []
+        skip_vars = set()
+        for row, x in enumerate(system.X):
+
+            eqn = system._render_row(row)
+            if eqn == 0:
+                continue
+
+            if isinstance(x, Output):
+                equations.append(eqn)
+            elif isinstance(x, DVariable):
+                int_x, = {ix for ix in system.X
+                          if isinstance(ix, Variable) and
+                          ix.index == x.index}
+
+                if int_x in dependent_variables or int_x in free_variables:
+                    equations.append(eqn)
+            elif isinstance(x, Variable):
+                equations.append(eqn)
+        return equations
 
     @property
     def metamodel(self):
@@ -229,6 +267,25 @@ class Composite(BondGraphBase, LabeledPortManager):
     @property
     def equations(self):
         return [str(r) for r in self.constitutive_relations]
+
+    @property
+    def output_vars(self):
+        j = 0
+        out = dict()
+        excluded = {
+            v for pair in self._port_map.values() for v in pair
+        }
+
+        for v in self.components:
+            try:
+                for i in v.output_vars:
+                    cv = (v, i)
+                    if cv not in excluded:
+                        out.update({f"y_{j}": cv})
+                        j += 1
+            except AttributeError:
+                pass
+        return out
 
     @property
     def control_vars(self):

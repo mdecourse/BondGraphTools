@@ -1,15 +1,6 @@
 from BondGraphTools import new, connect, expose
 import sympy
-
-def test_build_relations():
-    c = new("C")
-    eqns = c._build_relations()
-
-    test_eqn = {sympy.sympify("x_0 - C*e_0"),
-                sympy.sympify("dx_0 - f_0")}
-
-    assert set(eqns) == test_eqn
-
+from .helpers import *
 
 def test_zero_junction_relations():
     r = new("R", value=sympy.symbols('r'))
@@ -24,11 +15,11 @@ def test_zero_junction_relations():
     connect(l, kvl)
     connect(c, kvl)
 
-    rels = kvl.constitutive_relations
+    rels = [str(r) for r in kvl.constitutive_relations]
 
-    assert sympy.sympify("e_1 - e_2") in rels
-    assert sympy.sympify("e_0 - e_2") in rels
-    assert sympy.sympify("f_0 + f_1 + f_2") in rels
+    assert "e_1 - e_2" in rels
+    assert "e_0 - e_2" in rels
+    assert "f_0 + f_1 + f_2" in rels
 
 
 def test_build_model_fixed_cap():
@@ -36,12 +27,9 @@ def test_build_model_fixed_cap():
 
     eqns = c.constitutive_relations
     assert len(eqns) == 2
+    test_set = {"x_0 - 0.001*e_0", "dx_0-f_0" }
 
-    test_eqn1 = sympy.sympify("x_0 - 0.001*e_0")
-    test_eqn2 = sympy.sympify("dx_0-f_0")
-
-    assert test_eqn1 in eqns
-    assert test_eqn2 in eqns
+    assert sym_set_eq(eqns, test_set)
 
 
 def test_cv_relations():
@@ -55,7 +43,8 @@ def test_cv_relations():
     connect(c, (kcl,kcl.non_inverting))
     connect(r, (kcl, kcl.non_inverting))
     connect(se, (kcl, kcl.non_inverting))
-    assert bg.constitutive_relations == [sympy.sympify("dx_0 + u_0 + x_0")]
+    assert sym_set_eq(bg.constitutive_relations,
+                      {"dx_0 + u_0 + x_0"})
 
 
 def test_parallel_crv_relations():
@@ -70,8 +59,8 @@ def test_parallel_crv_relations():
     connect(se, kcl)
     connect(r, kcl)
 
-    assert bg.constitutive_relations == [sympy.sympify("dx_0 - du_0"),
-                                         sympy.sympify("x_0 - u_0")]
+    assert sym_set_eq(bg.constitutive_relations, {"dx_0 - du_0", "x_0 - u_0"})
+
 
 def test_ported_series_resistor():
 
@@ -92,9 +81,8 @@ def test_ported_series_resistor():
 
     assert len(model.ports) == 1
 
-    assert model.constitutive_relations == [
-        sympy.sympify("e_0 - 3*f_0 - u_0")
-    ]
+    assert sym_set_eq(model.constitutive_relations, {"e_0 - 3*f_0 - u_0"})
+
 
 def test_ported_cap():
     model = new()
@@ -111,10 +99,10 @@ def test_ported_cap():
     expose(ss)
     assert len(model.ports) == 1
 
+    assert sym_set_eq(model.constitutive_relations,
+                      {"dx_0 - f_0", "e_0 - x_0/3"})
 
-    assert model.constitutive_relations == [
-        sympy.sympify("dx_0 - f_0"),sympy.sympify("e_0 - x_0/3")
-    ]
+
 def test_ported_parallel_rc():
 
     model = new()
@@ -126,17 +114,15 @@ def test_ported_parallel_rc():
         r,c,zero, ss
     )
 
-    connect(r,zero)
-    connect(c,zero)
+    connect(r, zero)
+    connect(c, zero)
     connect(ss, zero)
 
     expose(ss)
     assert len(model.ports) == 1
 
-    assert model.constitutive_relations == [
-        sympy.sympify("dx_0 + x_0/6 - f_0"),
-        sympy.sympify("e_0 - x_0/3")
-    ]
+    assert sym_set_eq(model.constitutive_relations,
+                      {"dx_0 + x_0/6 - f_0", "e_0 - x_0/3"})
 
 
 class TestConstitutiveRelations:
