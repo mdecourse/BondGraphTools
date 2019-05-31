@@ -27,7 +27,7 @@ def test_build_model_fixed_cap():
 
     eqns = c.constitutive_relations
     assert len(eqns) == 2
-    test_set = {"x_0 - 0.001*e_0", "dx_0-f_0" }
+    test_set = {"e_0 - 1000.0 * x_0", "dx_0 - f_0"}
 
     assert sym_set_eq(eqns, test_set)
 
@@ -59,7 +59,7 @@ def test_parallel_crv_relations():
     connect(se, kcl)
     connect(r, kcl)
 
-    assert sym_set_eq(bg.constitutive_relations, {"dx_0 - du_0", "x_0 - u_0"})
+    assert sym_set_eq(bg.constitutive_relations, {"x_0 - u_0"})
 
 
 def test_ported_series_resistor():

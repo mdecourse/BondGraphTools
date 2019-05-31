@@ -5,6 +5,7 @@ import os
 import yaml
 from BondGraphTools import load, save, new, connect
 import BondGraphTools.fileio as dm
+from .helpers import *
 import logging
 
 file_path = pathlib.Path(__file__).parent / 'files'
@@ -45,18 +46,10 @@ def test_load_rlc():
         (sf_0, kcl_3)
     }
 
-    eqns = {
-        sp.sympify("dx_0 - u_0 + x_0 / 1000 + x_1 / 10"),
-        sp.sympify("dx_1 - x_0 / 10")
-    }
+    eqns = {"dx_0 - u_0 + x_0 / 1000 + x_1 / 10",
+            "dx_1 - x_0 / 10"}
 
-    eqns_2 = {
-        sp.sympify("dx_1 - u_0 + x_1 / 1000 + x_0 / 10"),
-        sp.sympify("dx_0 - x_1 / 10")
-    }
-
-    assert (set(model.constitutive_relations) == eqns) or \
-                (set(model.constitutive_relations) == eqns_2)
+    assert sym_set_eq(model.constitutive_relations, eqns)
 
 
 def test_load_rlc_parallel():
@@ -72,15 +65,8 @@ def test_load_rlc_parallel():
 
     _, v = model.state_vars['x_0']
 
-    if str(v) != 'p_0':
-        eq1 = sp.sympify("dx_0 - x_1")
-        eq2 = sp.sympify("dx_1 - u_0 + x_0 + x_1")
-    else:
-        eq1 = sp.sympify("dx_1 - x_0")
-        eq2 = sp.sympify("dx_0 - u_0 + x_0 + x_1")
-
-    for r in rel:
-        assert r in (eq1, eq2)
+    assert sym_set_eq(model.constitutive_relations,
+                      {"dx_0 - x_1", "dx_1 - u_0 + x_0 + x_1"})
 
 
 def test_load_modular():

@@ -1,5 +1,5 @@
 import pytest
-import sympy as sp
+from .helpers import *
 
 import BondGraphTools as bgt
 
@@ -19,4 +19,4 @@ def test_diode_model():
 
     assert not d.control_vars
 
-    assert d.equations[0] == 'f_0 - exp(e_0) +1'
+    assert sym_set_eq(d.constitutive_relations, {'f_0 - exp(e_0) +1'})

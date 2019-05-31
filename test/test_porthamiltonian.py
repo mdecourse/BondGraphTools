@@ -24,7 +24,7 @@ def test_create_PH():
 
     assert ph.state_vars == {"x_0": "x"}
 
-    assert ph.equations == {"-e_0 + x_0**3/D + x_0/C", "dx_0 - f_0"}
+    assert ph.equations == ["-e_0 + x_0**3/D + x_0/C", "dx_0 - f_0"]
 
     assert ph.hamiltonian == hamiltonian
     port_list = list(ph.ports)
@@ -42,11 +42,21 @@ def test_create_PH_2():
     assert ph.params == {"C": None}
 
     assert set(ph.state_vars.values()) == {"x", "y"}
-    assert sym_set_eq(ph.constitutive_relations,
-                {"e_0 - x_0/(C + x_1)",
-                 "dx_0 - f_0",
-                 "e_1 + x_0**2/(2*(C + x_1)**2)",
-                 "dx_1 - f_1"})
+
+    eqns = ["e_0 - x_0/(C + x_1)",
+            "dx_0 - f_0",
+            "e_1 + x_0**2/(2*(C + x_1)**2)",
+            "dx_1 - f_1"]
+
+    assert len(ph.constitutive_relations) == 4
+    for r in ph.constitutive_relations:
+        eq = None
+        for i in range(len(eqns)):
+            if sym_implicit_eq(r, eqns[i]):
+                eq = eqns[i]
+                break
+        if not eq:
+            assert False, f"{r} not in {eqns}"
 
     assert ph.hamiltonian == hamiltonian
 
@@ -89,5 +99,5 @@ def test_create_duffing_eqn():
 
     assert sym_set_eq(
         model.constitutive_relations,
-        {"dx_0 + x_1 - u_0", "dx_1 - x_0**3 - x_0", "y_0 - x_0**3 - x_0"}
+        {"dx_0 + x_1 - u_0", "dx_1 - x_0**3 - x_0"}
     )

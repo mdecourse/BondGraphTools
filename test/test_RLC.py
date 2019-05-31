@@ -40,27 +40,6 @@ def test_build_and_drive(rlc):
     assert len(rlc.control_vars) == 1
 
 
-# TODO: we should fix this when we rethink how parameters are set up.
-@pytest.mark.skip
-def test_symbolic_params():
-    r = bgt.new("R", value=sympy.symbols('r'))
-    l = bgt.new("I", value=sympy.symbols('l'))
-    c = bgt.new("C", value=sympy.symbols('c'))
-    kvl = bgt.new("0", name="kvl")
-    rlc = bgt.new()
-    rlc.add([r,l, c , kvl])
-
-    bgt.connect(r, kvl)
-    bgt.connect(l, kvl)
-    bgt.connect(c, kvl)
-
-    assert len(rlc.params) == 3
-
-    params = {k for _, k in rlc.params.values()}
-
-    assert params & set(sympy.symbols('r, l, c'))
-
-
 @pytest.mark.use_fixture("rlc")
 def test_rlc_con_rel(rlc):
 
@@ -85,9 +64,7 @@ def test_se():
     assert vc.output_vars == {"y_0": (Se, 'f')}
     system = vc.system_model
     assert isinstance(system.X[0], Output)
-    print(system.X)
-    print(system.L)
-    assert sym_set_eq(vc.constitutive_relations, {"y_0 - dx_0", "x_0 - 1"})
+    assert sym_set_eq(vc.constitutive_relations, {"x_0 - 1"})
 
 @pytest.mark.skip
 def test_one():

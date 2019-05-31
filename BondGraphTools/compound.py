@@ -75,6 +75,7 @@ class Composite(BondGraphBase, LabeledPortManager):
 
     @property
     def constitutive_relations(self):
+
         if not self.components:
             return []
         system = self.system_model
@@ -92,14 +93,15 @@ class Composite(BondGraphBase, LabeledPortManager):
 
         equations = []
         skip_vars = set()
+
         for row, x in enumerate(system.X):
+            if isinstance(x, Output):
+                continue
 
             eqn = system._render_row(row)
             if eqn == 0:
                 continue
 
-            if isinstance(x, Output):
-                equations.append(eqn)
             elif isinstance(x, DVariable):
                 int_x, = {ix for ix in system.X
                           if isinstance(ix, Variable) and

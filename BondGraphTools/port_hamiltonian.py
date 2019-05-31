@@ -89,3 +89,7 @@ class PortHamiltonian(Atomic):
         ports = {i: None for i in range(len(state_vars))}
 
         return relations, state_vars, params, ports
+
+    @property
+    def constitutive_relations(self):
+        return self.system_model()
