@@ -43,21 +43,13 @@ def test_create_PH_2():
 
     assert set(ph.state_vars.values()) == {"x", "y"}
 
-    eqns = ["e_0 - x_0/(C + x_1)",
+    eqns = {"e_0 - x_0/(C + x_1)",
             "dx_0 - f_0",
             "e_1 + x_0**2/(2*(C + x_1)**2)",
-            "dx_1 - f_1"]
+            "dx_1 - f_1"}
 
     assert len(ph.constitutive_relations) == 4
-    for r in ph.constitutive_relations:
-        eq = None
-        for i in range(len(eqns)):
-            if sym_implicit_eq(r, eqns[i]):
-                eq = eqns[i]
-                break
-        if not eq:
-            assert False, f"{r} not in {eqns}"
-
+    sym_set_eq(ph.constitutive_relations, eqns)
     assert ph.hamiltonian == hamiltonian
 
     port_list = list(ph.ports)

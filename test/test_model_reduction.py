@@ -15,6 +15,7 @@ from BondGraphTools.model_reduction.model_reduction import (
 from BondGraphTools.model_reduction.symbols import *
 from BondGraphTools.model_reduction import *
 from sympy import exp
+from .helpers import *
 
 class DummyPort(object):
     def __init__(self, index):
@@ -867,6 +868,23 @@ class Test_generate_system_from:
         assert not M
         assert not J
         # should test L, but better to test it later in integrations
+
+    def test_expose(self):
+        model = new()
+
+        ss = new("SS")
+        model.add(ss)
+
+        assert len(model.control_vars) == 2
+        assert len(model.ports) == 0
+
+        assert sym_set_eq(ss.constitutive_relations,
+                          {"e_0 - e",
+                           "f_0 + f"})
+
+        # assert sym_set_eq(model.constitutive_relations,
+        #                   {"e_0 - u_0",
+        #                    "f_0 + u_1"})
 
 
 def _assert_in(eqn, iterable):

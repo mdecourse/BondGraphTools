@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 _state_var = (DVariable, Variable, Output, Control)
 _non_constant = (DVariable, Variable, Output, Control, Effort, Flow)
-
+_power_vars =(Effort, Flow)
 
 class System(object):
     """A Dynamical Systems Model
@@ -139,14 +139,36 @@ class System(object):
                    for i, x in enumerate(self.X)
                    if isinstance(x, DVariable))
 
+    def is_connected(self):
+        """Returns true if all 'Effort' and 'Flow' variables have been
+        eliminated"""
+
+        atoms = {v for v in self.nonlinear_variables
+                 if isinstance(v,_power_vars)}
+
+        return all(self.L[i, i] == 1 and x not in atoms
+                   for i, x in enumerate(self.X)
+                   if isinstance(x, _power_vars))
+
     @property
     def has_constraints(self):
+        """Returns true if there is an algebraic constraint $g(x,u) = 0$"""
         atoms = self.nonlinear_variables
 
         return any(self.L[i, i] == 0 and x in atoms
                    for i, x in enumerate(self.X)
                    if isinstance(x, _state_var))
 
+    def nullspace(self):
+
+        # in smith normal form, the basis vectors of the nullspace
+        # are given by the zero diagonal of L
+
+        # 1. step through these in reverse.
+        #   - if x is a basis of the nullspace
+        #     include dot(x)
+
+        pass
 
 def as_dict(sparse_matrix):
     """Converts an instance of `sympy.SparseMatrix` into a `dict`-of-`dict`s.

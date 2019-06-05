@@ -111,6 +111,8 @@ class Composite(BondGraphBase, LabeledPortManager):
                     equations.append(eqn)
             elif isinstance(x, Variable):
                 equations.append(eqn)
+
+        # Final Step: apply map from cv->ports
         return equations
 
     @property

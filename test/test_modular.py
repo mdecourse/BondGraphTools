@@ -1,5 +1,6 @@
 import pytest
 import pathlib
+from .helpers import *
 import logging
 
 import sympy as sp
@@ -24,13 +25,14 @@ def test_source_sensor():
     expose(ss, "A")
     assert len(model.ports) == 1
 
+
 def test_ss_exposure():
     model = new()
     ss = new("SS")
     sf = new("Sf", name="Sf")
     zero = new("0")
 
-    model.add(ss,sf,zero)
+    model.add(ss, sf, zero)
 
     connect(sf, zero)
     connect(ss, zero)
@@ -74,17 +76,8 @@ def test_modularity():
     Vs = model_1 / "Vs"
     Z = model_1 / "Z"
 
-
-    Vs_cr = Vs.constitutive_relations
-
-    assert Vs_cr ==[sp.sympify('f_0 + u_0')]
-    
-    assert (set(model_1.constitutive_relations) == {
-        sp.sympify("dx_0 - x_1"), sp.sympify("dx_1 - u_0 +x_0 + x_1")
-    }) or ( set(model_1.constitutive_relations) == {
-        sp.sympify("dx_1 - x_0"), sp.sympify("dx_0 - u_0 +x_0 + x_1")}
-           )
-
-
-
-
+    assert sym_eq(Vs.constitutive_relations, 'f_0 + u_0')
+    assert sym_set_eq(
+        model_1.constitutive_relations,
+        {"dx_1 - u_0 +x_0 + x_1", "dx_0 - x_1"}
+    )
