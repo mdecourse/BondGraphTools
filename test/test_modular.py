@@ -3,7 +3,6 @@ import pathlib
 from .helpers import *
 import logging
 
-import sympy as sp
 
 from BondGraphTools import new, connect, load, expose
 from BondGraphTools.exceptions import *
@@ -45,7 +44,38 @@ def test_ss_exposure():
     p, = list(model.ports)
     assert p.name is "pin"
     assert set(model.control_vars.values()) == {(sf, 'f')}
+    assert sym_set_eq(zero.constitutive_relations,
+                      {"e_0 - e_1", "f_0 + f_1"})
+    assert sym_set_eq(sf.constitutive_relations,
+                      {"-e_0 + e", "f + f_0"})
+    assert sym_set_eq(ss.constitutive_relations,
+                      {"-e + e_0", "f + f_0"})
 
+    system = model.system_model
+
+    assert isinstance(system.X[0], Output)
+    for i in range(1, 11):
+        assert isinstance(system.X[i], Effort) or isinstance(system.X[i], Flow)
+
+    for i in range(11, 14):
+        assert isinstance(system.X[i], Control)
+
+
+def test_ss_exposure_r():
+    model = new()
+    ss = new("SS")
+    r = new("R")
+    junction = new("0")
+
+    model.add(r, ss, junction)
+
+    connect(ss, junction)
+    connect(r, junction)
+    expose(ss)
+
+    assert sym_set_eq(model.constitutive_relations,
+                      {"e_0 - r * f_0"})
+    
 
 def test_load_modular():
     model_1 = load(file_path / "modular.bg")
@@ -76,7 +106,7 @@ def test_modularity():
     Vs = model_1 / "Vs"
     Z = model_1 / "Z"
 
-    assert sym_eq(Vs.constitutive_relations, 'f_0 + u_0')
+    assert sym_eq(Vs.constitutive_relations[0], 'f_0 + u_0')
     assert sym_set_eq(
         model_1.constitutive_relations,
         {"dx_1 - u_0 +x_0 + x_1", "dx_0 - x_1"}

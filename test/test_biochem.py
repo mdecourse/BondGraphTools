@@ -6,7 +6,7 @@ import BondGraphTools as bgt
 from BondGraphTools import connect
 from BondGraphTools.exceptions import InvalidPortException
 from BondGraphTools.reaction_builder import Reaction_Network
-
+from .helpers import *
 
 def test_make_a_to_b():
 
@@ -60,6 +60,7 @@ def test_make_a_to_b_inplicit():
 #             ({1:1, 3:1}, 0), ({1:1}, sympy.sympify("-r*exp(e_0) + r*exp(e_1)"))
 #         ]
 
+
 def test_a_to_b_model():
     A = bgt.new("Ce", library="BioChem", value=[1, 1, 1])
     B = bgt.new("Ce", library="BioChem", value=[1, 1, 1])
@@ -72,18 +73,14 @@ def test_a_to_b_model():
     a_to_b = bgt.new()
     a_to_b.add(A , Re, B,Y_A, Y_B)
 
-    connect(A, Y_A.non_inverting)
-    connect(B, Y_B.non_inverting)
-    connect((Re,0), Y_A.inverting)
-    connect((Re,1), Y_B.inverting)
+    connect(A, Y_A)
+    connect(Y_B, B)
+    connect(Y_A, (Re, 0))
+    connect((Re, 1), Y_B)
 
-    eqns ={
-        sympy.sympify("dx_0 + x_0 -x_1"), sympy.sympify("dx_1 + x_1 -x_0")
-    }
-    for relation in a_to_b.constitutive_relations:
-        assert relation in eqns
+    assert sym_set_eq(a_to_b.constitutive_relations, {"dx_0 + x_0 - x_1"})
 
-@pytest.mark.skip
+
 def test_ab_to_c_model():
 
     A = bgt.new("Ce", library="BioChem", value=[1, 1, 1])
@@ -101,17 +98,11 @@ def test_ab_to_c_model():
     connect(Re, Y_C)
     connect(Y_C, C)
 
-    state_basis ,_,_ = bg.basis_vectors
-    (x_0, dx_0), = (k for k, (v, _) in state_basis.items() if v is A)
-    (x_1, dx_1), = (k for k, (v, _) in state_basis.items() if v is B)
-    (x_2, dx_2), = (k for k, (v, _) in state_basis.items() if v is C)
+    eqns = {"dx_0 + x_0*x_1 - x_2",
+            "dx_1 + x_0*x_1 - x_2",
+            "dx_2 - x_0*x_1 + x_2"}
 
-    eqns = {dx_0 + x_0*x_1 - x_2,
-            dx_1 + x_0*x_1 - x_2,
-            dx_2 - x_0*x_1 + x_2}
-
-    relations = set(bg.constitutive_relations)
-    assert not relations ^ eqns
+    assert sym_set_eq(bg.constitutive_relations, eqns)
 
 
 def test_new_reaction_network():

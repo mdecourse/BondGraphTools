@@ -6,7 +6,7 @@ from sympy import SparseMatrix, sympify, symbols
 import re
 from BondGraphTools.exceptions import SymbolicException
 from BondGraphTools.model_reduction import parse_relation
-from BondGraphTools import new, connect
+from BondGraphTools import new, connect, expose
 import sympy
 from BondGraphTools.model_reduction.model_reduction import (
     _make_coords, generate_system_from_atomic, _normalise, _reduce_constraints,
@@ -586,8 +586,6 @@ class TestMergeSystems:
         assert p1_inv == {0: 0}
         assert p2_inv == {0: 0}
 
-
-
     def test_merge_sytem(self):
         d1 = DummyModel(["dx_0 - c * x_0"], uri="d1")
         d2 = DummyModel(["dx_0 + d * x_0"], uri="d2")
@@ -847,7 +845,6 @@ class TestMerge:
         e_3 = system.X[5]
         assert system.J == [sympy.log(x), u*sympy.exp(e_3 / P), u*sympy.exp(e_2 / P)]
 
-
 class Test_generate_system_from:
     def test_compound(self):
         p1 = Parameter('C')
@@ -869,7 +866,7 @@ class Test_generate_system_from:
         assert not J
         # should test L, but better to test it later in integrations
 
-    def test_expose(self):
+    def test_generate_interface(self):
         model = new()
 
         ss = new("SS")
@@ -881,10 +878,13 @@ class Test_generate_system_from:
         assert sym_set_eq(ss.constitutive_relations,
                           {"e_0 - e",
                            "f_0 + f"})
+        expose(ss, "A")
 
-        # assert sym_set_eq(model.constitutive_relations,
-        #                   {"e_0 - u_0",
-        #                    "f_0 + u_1"})
+        system = generate_interface_system(model)
+
+        assert len(system.X) == 2
+        assert isinstance(system.X[0], Effort) and system.X[0].index == 0
+        assert isinstance(system.X[1], Flow) and system.X[1].index == 0
 
 
 def _assert_in(eqn, iterable):

@@ -71,4 +71,35 @@ class Test_atomic_relations:
             (1, 3, -1)
         ]
 
+    def test_equal_flow(self):
+        kcl = new("1")
+        c = new("C", value=1)
+        se = new("Se")
+        r = new("R", value=1)
+        bg = new()
+        bg.add([c, se, kcl, r])
 
+        connect(c, (kcl, kcl.non_inverting))
+        connect(r, (kcl, kcl.non_inverting))
+        connect(se, (kcl, kcl.inverting))
+
+        equations = kcl.equations
+
+        assert equations == [
+            "e_1 + e_2",
+            "e_0 + e_2",
+            "f_2 - f_1 - f_0"
+        ]
+
+    def test_Re(self):
+        re = new("Re", library="BioChem")
+
+        system = re.system_model
+        # coords are e_0, f_0, e_1, f_1
+        # eqns are
+        # f_0 + f_1
+
+        assert system.L.row_list() == [
+            (0, 1, 1), (0, 3, 1),   # f_0 + f_1 = 0
+            (1, 1, 1)               # f_0 - ...
+        ]

@@ -11,7 +11,8 @@ logger = logging.getLogger(__name__)
 
 _state_var = (DVariable, Variable, Output, Control)
 _non_constant = (DVariable, Variable, Output, Control, Effort, Flow)
-_power_vars =(Effort, Flow)
+_power_vars = (Effort, Flow)
+
 
 class System(object):
     """A Dynamical Systems Model
@@ -122,7 +123,7 @@ class System(object):
 
     @property
     def nonlinear_variables(self):
-        atoms = {}
+        atoms = set()
         variables = set(self.X)
         for term in self.J:
             atoms |= (term.atoms() & variables)
@@ -159,16 +160,47 @@ class System(object):
                    for i, x in enumerate(self.X)
                    if isinstance(x, _state_var))
 
-    def nullspace(self):
+    def _target_rows(self):
+        """iterator which returns the rows to turn into equations"""
+        row = 0
+        atoms = self.nonlinear_variables
+        rows = []
 
-        # in smith normal form, the basis vectors of the nullspace
-        # are given by the zero diagonal of L
+        while row < len(self.X):
+            x = self.X[row]
+            if isinstance(x, Effort):
+                if self.L[row, row] == 0 or x in atoms:
+                    rows.append(row)
+                    rows.append(row + 1)
+                    row += 2
+                else:
+                    row += 1
+            elif isinstance(x, Flow):
+                if self.L[row, row] == 0 or x in atoms:
+                    rows.append(row - 1)
+                    rows.append(row)
+                row += 1
+            elif self.L[row, :].is_zero and self.M[row, :].is_zero:
+                row += 1
+            else:
+                rows.append(row)
+                row += 1
 
-        # 1. step through these in reverse.
-        #   - if x is a basis of the nullspace
-        #     include dot(x)
+        for row in rows:
+            yield row
 
-        pass
+    def constitutive_relations(self):
+        reduce(self)
+        eqns = []
+        for row in self._target_rows():
+            if isinstance(self.X[row], Output):
+                continue
+            row_eqn = self._render_row(row, is_reduced=True)
+            if row_eqn != 0:
+                eqns.append(row_eqn)
+
+        return eqns
+
 
 def as_dict(sparse_matrix):
     """Converts an instance of `sympy.SparseMatrix` into a `dict`-of-`dict`s.
@@ -828,7 +860,8 @@ def _merge_row(system, row, eqn):
     for col in range(L.cols):
         v_rj = L[row, col]
         v_jj = L[col, col]
-        if not v_jj or not v_rj: continue
+        if not v_jj or not v_rj:
+            continue
 
         L[row, :] = v_jj*L[row, :] - v_rj*L[col, :]
         M[row, :] = v_jj*M[row, :] - v_rj*M[col, :]
@@ -965,15 +998,17 @@ def _simplify_nonlinear_terms(system, skip=None):
                 if system.L[i, i] == 1 and x in atoms and
                 i not in skip]
     indicies.sort()
-    if not indicies: return
+
+    if not indicies:
+        return
 
     index = indicies.pop()
 
     atom = system.X[index]
     # The system is LX + MJ(X) =0
     # Hence, set L = (I - P) -> P = (I - L)
-    # Then IX + (L - I)X + MJ(X) = 0
-    # and hence X = (I - L)X - MJ(X)
+    # Then IX + -PX + MJ(X) = 0
+    # and hence X = PX - MJ(X)
 
     remainder = -sum(
         system.M[index, c] * system.J[c] for c in range(system.M.cols)
@@ -990,24 +1025,7 @@ def _simplify_nonlinear_terms(system, skip=None):
     return _simplify_nonlinear_terms(system, skip)
 
 
-def reduce(system):
-    """ Performs inplace basic symbolic reduction on the given system.
-
-    We assume that the system coordinates are stack so that::
-
-        X = (y, dx, e, f, x, u)
-
-    Args:
-        system:
-
-    Returns: system (tuple)
-    """
-    _normalise(system)
-
-    if not system.M.is_zero:
-        _reduce_constraints(system)
-        _simplify_nonlinear_terms(system)
-
+def _reorder_outputs(system):
     y_rows = [i for i, x in enumerate(system.X)
               if isinstance(x, Output)]
     ef_rows = [i for i, x in enumerate(system.X)
@@ -1026,12 +1044,125 @@ def reduce(system):
 
                 if v_x == 0 or any(system.L[dx_row, c] != 0
                                    for c in ef_rows if c > col):
-
                     continue
 
-                frac = v/v_x
-                f_l = lambda l_ij, j:  l_ij - frac * system.L[dx_row, j]
+                frac = v / v_x
+                f_l = lambda l_ij, j: l_ij - frac * system.L[dx_row, j]
                 system.L.row_op(y_row, f_l)
                 f_m = lambda m_ij, j: m_ij - frac * system.M[dx_row, j]
                 system.M.row_op(y_row, f_m)
                 break
+
+
+def _check_for_constant_state(system):
+
+    state_rows = [
+        r for r, x in enumerate(system.X) if isinstance(x, Variable)
+    ]
+
+    constant_rows = []
+
+    for row in state_rows:
+        skip_row = True
+        for col in range(row + 1, system.L.cols):
+            if system.L[row, col] != 0:
+                if col in state_rows:
+                    skip_row = False
+                else:
+                    skip_row = True
+
+        if not skip_row:
+            nonlinearity = sum(system.M[row, col] * term for col, term in
+                               enumerate(system.J))
+            if not (nonlinearity.atoms() & set(system.X)):
+                constant_rows.append(row)
+
+    # no work to do, bail out
+    if not constant_rows:
+        return
+
+    x_k_to_dx_j = {k: j
+                   for k, x in enumerate(system.X) if isinstance(x, Variable)
+                   for j, dx in enumerate(system.X) if isinstance(x, DVariable)
+                   and dx.index == x.index}
+
+    L = sparse_zero(len(constant_rows), system.L.cols)
+    M = sparse_zero(len(constant_rows), system.M.cols)
+
+    for i, row in enumerate(constant_rows):
+        for k in range(len(system.X)):
+            j = x_k_to_dx_j[k]
+            L[i, j] = system.L[row, k]
+
+    system.L = system.L.col_join(L)
+    system.M = system.L.col_join(M)
+    _normalise(system)
+
+
+def generate_interface_system(model: BondGraphBase) -> System:
+    """ Generates the basic port interface for a compound bond graph
+
+    Args:
+        model: The compount model to generate an interface for.
+
+    Returns:
+        tuple
+
+    """
+    namespace = {}
+    coordinates = []
+
+    for p in model.ports:
+        e_str = f"e_{p.name}"
+        f_str = f"f_{p.name}"
+        e = Effort(index=p.index, name=e_str)
+        f = Flow(index=p.index, name=f_str)
+        namespace.update({e_str: e, f_str: f})
+        coordinates += [e, f]
+
+    return System(coordinates,
+                  [],
+                  sparse_zero(0, len(coordinates)),
+                  sparse_zero(0, 0),
+                  [])
+
+
+def add_constraint(system: System, equation: sympy.Expr):
+    """ Adds the specified constraint to the system
+
+    Args:
+        system: The system which is to be constrained
+        equation:  The constraint in system coordinates.
+
+    """
+
+    rows = [r for r in range(system.L.rows)
+            if system.L[r, :].is_zero and system.M[r, :].is_zero]
+    try:
+        row = rows.pop()
+    except IndexError:
+        row = system.L.rows
+        system.L = system.L.col_join(sparse_zero(1, system.L.cols))
+        system.M = system.M.col_join(
+            sparse_zero(1, system.M.cols)
+        )
+
+    _replace_row(system, row, equation)
+
+
+def reduce(system: System):
+    """ Performs inplace basic symbolic reduction on the given system.
+
+    We assume that the system coordinates are stack so that::
+
+        X = (y, dx, e, f, x, u)
+    """
+    _normalise(system)
+
+    if not system.M.is_zero:
+        _reduce_constraints(system)
+        _simplify_nonlinear_terms(system)
+
+    _check_for_constant_state(system)
+
+    _reorder_outputs(system)

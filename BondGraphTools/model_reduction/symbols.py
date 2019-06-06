@@ -139,6 +139,9 @@ class Effort(sympy.Symbol):
         if not name and isinstance(index, int):
             obj = super().__new__(cls, f"{cls.default_prefix}_{index}", **kwargs)
             obj.index = index
+        elif name and isinstance(index, int):
+            obj = super().__new__(cls, name, **kwargs)
+            obj.index = index
         else:
             try:
                 _, idx = name.split('_')
@@ -159,6 +162,9 @@ class Flow(sympy.Symbol):
     def __new__(cls, name=None, index=None, **kwargs):
         if not name and isinstance(index, int):
             obj = super().__new__(cls, f"{cls.default_prefix}_{index}", **kwargs)
+            obj.index = index
+        elif name and isinstance(index, int):
+            obj = super().__new__(cls, name, **kwargs)
             obj.index = index
         else:
             try:

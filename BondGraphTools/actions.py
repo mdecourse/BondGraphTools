@@ -48,7 +48,7 @@ def disconnect(target, other):
     if isinstance(target, BondGraphBase):
         model = target.parent
     elif isinstance(target, Port):
-        model =  target.component.parent
+        model = target.component.parent
     else:
         model = target[0].parent
 
@@ -71,6 +71,7 @@ def disconnect(target, other):
             return {bond for bond in model.bonds
                     if item in (bond.head, bond.tail)}
         except TypeError as ex:
+            del ex
             return {bond for bond in model.bonds
                     if item is bond.head.component or
                     item is bond.tail.component}
@@ -99,7 +100,6 @@ def connect(source, destination):
     See Also:
         :func:`disconnect`
     """
-
 
     tail = _find_or_make_port(source, is_tail=True)
     head = _find_or_make_port(destination)

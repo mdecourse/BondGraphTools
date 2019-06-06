@@ -11,7 +11,9 @@ from BondGraphTools.port_managers import LabeledPortManager
 from BondGraphTools.exceptions import *
 from BondGraphTools.view import GraphLayout
 from BondGraphTools.model_reduction import (
-    merge_systems, merge_bonds, reduce)
+    merge_systems, merge_bonds, reduce, generate_interface_system,
+    add_constraint)
+
 from BondGraphTools.model_reduction.symbols import *
 
 logger = logging.getLogger(__name__)
@@ -78,41 +80,12 @@ class Composite(BondGraphBase, LabeledPortManager):
 
         if not self.components:
             return []
-        system = self.system_model
-        reduce(system)
 
-        dependent_variables = set()
-        for term in system.J:
-            dependent_variables |= (term.atoms() & set(system.X))
-
-        # nullspace of L
-        free_variables = {
-            x for i, x in enumerate(system.X)
-            if system.L[i, i] == 0 and x not in dependent_variables
-        }
-
-        equations = []
-        skip_vars = set()
-
-        for row, x in enumerate(system.X):
-            if isinstance(x, Output):
-                continue
-
-            eqn = system._render_row(row)
-            if eqn == 0:
-                continue
-
-            elif isinstance(x, DVariable):
-                int_x, = {ix for ix in system.X
-                          if isinstance(ix, Variable) and
-                          ix.index == x.index}
-
-                if int_x in dependent_variables or int_x in free_variables:
-                    equations.append(eqn)
-            elif isinstance(x, Variable):
-                equations.append(eqn)
+        equations = self.system_model.constitutive_relations()
 
         # Final Step: apply map from cv->ports
+
+
         return equations
 
     @property
@@ -254,16 +227,66 @@ class Composite(BondGraphBase, LabeledPortManager):
         if not self.components:
             return None
 
-        systems = {component: component.system_model
-                   for component in self.components}
+        if self.ports:
+            systems = {self: generate_interface_system(self)}
+        else:
+            systems = {}
+
+        systems.update({component: component.system_model
+                        for component in self.components})
 
         system, maps = merge_systems(*systems.values())
 
         inverse_maps = {component: (subsystem.X, coord_map)
-                        for (component, subsystem),(coord_map, _)
+                        for (component, subsystem), (coord_map, _)
                         in zip(systems.items(), maps)}
 
         merge_bonds(system, self.bonds, inverse_maps)
+
+        def find_global_coord(mapping, cls, name=None, index=None):
+
+            x_local, global_to_local = mapping
+
+            for i, x in enumerate(x_local):
+                if (isinstance(x, cls)
+                    and ((name and x.name == name)
+                         or (index is not None and x.index == index))):
+                    for k, j in global_to_local.items():
+                        if j == i:
+                            return k
+
+            raise SymbolicException(
+                "Could not find cls=%s, name=%s, index=%s",
+                cls, name, index
+            )
+
+        for port, vars in self._port_map.items():
+            # get the control variable
+
+            for component, cv_name in vars:
+                u_idx = find_global_coord(inverse_maps[component],
+                                          name=cv_name,
+                                          cls=Control)
+                if cv_name == "e":
+                    x_idx = find_global_coord(inverse_maps[self],
+                                              index=port.index,
+                                              cls=Effort)
+
+                    constraint = system.X[u_idx] - system.X[x_idx]
+
+                elif cv_name == "f":
+                    x_idx = find_global_coord(inverse_maps[self],
+                                              index=port.index,
+                                              cls=Flow)
+                    constraint = system.X[u_idx] + system.X[x_idx]
+
+                else:
+                    raise InvalidPortException(
+                        "Could not find coordinates for port %s", port
+                    )
+
+                add_constraint(system, constraint)
+
         reduce(system)
 
         return system
