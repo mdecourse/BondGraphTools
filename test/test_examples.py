@@ -97,3 +97,36 @@ def test_optomechanical_example():
 
     for test_res, relation in zip(results, cavity.constitutive_relations):
         assert test_res == str(relation)
+
+
+def test_readme_example():
+    import BondGraphTools as bgt
+
+    # Create a new model
+    model = bgt.new(name="RLC")
+
+    # Create components
+    # 1 Ohm Resistor
+    resistor = bgt.new("R", name="R1", value=1.0)
+
+    # 1 Henry Inductor
+    inductor = bgt.new("I", name="L1", value=1.0)
+
+    # 1 Farad Capacitor
+    capacitor = bgt.new("C", name="C1", value=1.0)
+
+    # Conservation Law
+    law = bgt.new("0")  # Common voltage conservation law
+
+    # Add them to the model
+    model.add(resistor, inductor, capacitor, law)
+
+    # Connect the components
+    bgt.connect(law, resistor)
+    bgt.connect(law, capacitor)
+    bgt.connect(law, inductor)
+
+    results = ["dx_0 - x_1", "dx_1 + x_0 + x_1"]
+
+    for truth, test_result in zip(results, model.constitutive_relations):
+        assert str(test_result) == truth

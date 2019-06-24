@@ -100,7 +100,6 @@ def connect(source, destination):
         :func:`disconnect`
     """
 
-
     tail = _find_or_make_port(source, is_tail=True)
     head = _find_or_make_port(destination)
 

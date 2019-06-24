@@ -4,7 +4,7 @@
 # BondGraphTools - A Toolkit for modelling multi-physics systems.
 ## Summary
 
-This toolkit is for rapid modelling and design of networked phsyical systems.
+This toolkit is for rapid modelling and design of networked physical systems.
 It is conceptually based upon the Bond Graph modelling methodology.
 
 ## Documentation
@@ -16,7 +16,7 @@ https://bondgraphtools.readthedocs.io/
 ### Dependencies
 
 BondGraph requires:
-- python 3.6
+- python 3.6 or greater.
 - julia 0.6.4
 
 Python dependencies:
@@ -24,17 +24,53 @@ Python dependencies:
 - numpy>=1.14
 - scipy>=1.0.1
 - matplotlib>=2.2.2
-- julia>=0.1.5
-- diffeqpy>=0.4
-- requests>=2.19
+- julia==0.1.5
+- diffeqpy==0.4
+- ordered-set>=3.0.0
 
 Julia dependencies:
  - PyCall
  - DifferentialEquations.jl
 
-### Instructions:
+### Instructions
 1. Install python > 3.6 for your operating system.
 2. Install Julia 0.6.4 (https://julialang.org/downloads/) for your operating
  system. _Julia 0.7 and 1.0 are not yet supported_
 3. Make sure Julia 0.6.4 is in your os path. (test this by running `julia -v`)
 4. Install using PyPI; `pip install BondGraphTools`
+
+
+## A Simple Example
+
+Build and simulate a RLC driven RLC circuit::
+
+    import BondGraphTools as bgt
+    
+    # Create a new model
+    model = bgt.new(name="RLC")
+    
+    # Create components
+    # 1 Ohm Resistor
+    resistor = bgt.new("R", name="R1", value=1.0)
+    
+    # 1 Henry Inductor
+    inductor = bgt.new("I", name="L1", value=1.0)
+    
+    # 1 Farad Capacitor
+    capacitor = bgt.new("C", name="C1", value=1.0)
+    
+    # Conservation Law
+    law = bgt.new("0") # Common voltage conservation law
+    
+    # Add them to the model
+    model.add(resistor, inductor, capacitor, law)
+    
+    # Connect the components
+    bgt.connect(law, resistor)
+    bgt.connect(law, capacitor)
+    bgt.connect(law, inductor)
+    
+    # produce equations of motion
+    print(model.constitutive_relations)
+
+    
