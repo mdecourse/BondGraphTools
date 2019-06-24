@@ -36,11 +36,11 @@ def disconnect(target, other):
     If there is no connection, this method does nothing.
 
     Args:
-        target (Port, BondGraphBase):
-        other (Port, BondGraphBase):
+        target (Port, Tuple, or BondGraphBase):
+        other (Port, Tuple, or BondGraphBase):
 
     Raises:
-        InvalidComponentException
+        InvalidComponentException: If the
 
     See Also:
         :func:`connect`
@@ -48,7 +48,7 @@ def disconnect(target, other):
     if isinstance(target, BondGraphBase):
         model = target.parent
     elif isinstance(target, Port):
-        model =  target.component.parent
+        model = target.component.parent
     else:
         model = target[0].parent
 
@@ -90,8 +90,8 @@ def connect(source, destination):
     port.
 
     Args:
-        source (Port or BondGraphBase):      The tail of the power bond
-        destination (Port or BondGraphBase): The head of the power bond
+        source (Port, Tuple, or BondGraphBase):      The tail of the power bond
+        destination (Port, Tuple, or BondGraphBase): The head of the power bond
 
     Raises:
         InvalidPortException, InvalidComponentException

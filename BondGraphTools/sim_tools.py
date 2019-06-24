@@ -1,4 +1,4 @@
-"""Tools for running mdoel simulations"""
+"""Tools for running simulations"""
 
 
 import logging
@@ -22,7 +22,7 @@ def _fetch_ic(x0, dx0, system, func, eps=0.001):
             [np.NaN for _ in system.state_vars], dtype=np.float64
         )
         for k, v in x0.items():
-            *_ , idx = str(k).split('_')
+            _, idx = str(k).split('_')
             idx = int(idx)
             X0[idx] = v
     elif isinstance(x0, (int, float, complex)) and len(system.state_vars) == 1:
@@ -50,7 +50,8 @@ def _fetch_ic(x0, dx0, system, func, eps=0.001):
 
     return X0, DX0
 
-def simulate(system,
+
+def simulate(model,
              timespan,
              x0,
              dx0=None,
@@ -82,9 +83,10 @@ def simulate(system,
           (power operator), `%` (remainder)
         * elementary math functions such as `sin`, `exp`, `log`
         * ternary if; for example `t < 0 ? 0 : 1` which implements the Heaviside
+          step function
 
     Args:
-        system :obj:`BondGraph`: The system to simulate
+        model: An instance of :obj:`BondGraph` to simulate
         timespan: A pair (`list` or `tuple`) containing the start and end points
                   of the simulation.
         x0: The initial conditions of the system.
@@ -95,8 +97,8 @@ def simulate(system,
         control_vars: A `dict`, `list` or `tuple` specifing the values of the
                       control variables.
     Returns:
-        t: numpy array of timesteps
-        x: numpy array of state values
+        t: numpy array of timesteps.
+        x: numpy array of state values.
 
     Raises:
         ModelException, SolverException
@@ -104,21 +106,19 @@ def simulate(system,
     from .config import config
     de = config.de
     j = config.julia
-    if system.ports:
+    if model.ports:
         raise ModelException(
             "Cannot Simulate %s: unconnected ports %s",
-            system, system.ports)
+            model, model.ports)
 
-    if system.control_vars and not control_vars:
+    if model.control_vars and not control_vars:
         raise ModelException("Control variable not specified")
 
     tspan = tuple(float(t) for t in timespan)
 
-
-    func_str, diffs = to_julia_function_string(system, control_vars)
+    func_str, diffs = to_julia_function_string(model, control_vars)
     func = j.eval(func_str)
-    X0, DX0 = _fetch_ic(x0, dx0, system, func)
-
+    X0, DX0 = _fetch_ic(x0, dx0, model, func)
 
     problem = de.DAEProblem(func, DX0, X0, tspan, differential_vars=diffs)
 
@@ -140,15 +140,20 @@ def to_julia_function_string(model, control_vars=None, in_place=False):
     We expect that that control_vars is a dict with the same keys,
     or list of the same size, as the model.control_vars
 
+    If `in_place=False` (by default). The resulting function will be of the
+    form :math:`res = f(dx, x, p ,t)`. Otherwise, the function will be of the
+    form  :math:`f(res, dx, x, p ,t)`.
+
     Args:
-        model:
-        control_vars:
-        in_place:
+        model: An instance of :obj:`BondGraphBase`.
+        control_vars: An iterable of control laws. Default is `None`.
+        in_place: True if the residuals are an in-place argument.
+                  Default is `false`.
 
     Returns:
         (string, list)
-        A string containing the function definition, and a list of bools
-        identifing which variables contain derivatives.
+        A string containing the function definition, and a list of `bools`
+        identifying which variables contain derivatives.
     """
 
     dX = sp.IndexedBase('dX')
@@ -160,7 +165,6 @@ def to_julia_function_string(model, control_vars=None, in_place=False):
         x_subs.append((x, X[i+1]))
         dx_subs.append((sp.S(f'dx_{i}'), dX[i+1]))
 
-
     cv_strings, dcv_strings = _generate_control_strings(
         list(model.control_vars.keys()),
         control_vars,
@@ -171,16 +175,15 @@ def to_julia_function_string(model, control_vars=None, in_place=False):
     differential_vars = []
     subs = x_subs + dx_subs
 
-    function_header = ""
-    function_body = ""
-    function_footer = ""
-
     if in_place:
         function_header = "function f(res, dX, X, p, t)\n"
     else:
         k = len(model.constitutive_relations)
         function_header = "function f(dX, X, p, t)\n"
         function_header += f"    res = zeros({k})\n"
+
+    function_body = ""
+    function_footer = ""
 
     for cv, dcv in zip(cv_strings, dcv_strings):
         function_header += cv
@@ -229,13 +232,15 @@ def _generate_control_strings(cv, cv_substitutions, x_subs, dx_subs):
     cv_strings = []
     dcv_strings = []
     subs = x_subs + dx_subs
-    partial_pairs = [(X_i,DX_i) for (_,X_i), (_,DX_i) in zip(x_subs, dx_subs)]
+    partial_pairs = [
+        (X_i, DX_i) for (_, X_i), (_, DX_i) in zip(x_subs, dx_subs)
+    ]
     for var, val in pairs:
         try:
 
             u_i = sp.sympify(val).subs(subs)
             du_i = u_i.diff(sp.S('t')) + sum([
-                u_i.diff(X)*DX for X,DX in partial_pairs
+                u_i.diff(X)*DX for X, DX in partial_pairs
             ])
             cv_strings.append(f"    {str(var)} = {u_i}\n")
             dcv_strings.append(f"    d{str(var)} = {du_i}\n")
