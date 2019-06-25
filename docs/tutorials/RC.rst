@@ -6,11 +6,14 @@ Tutorial: Driven Filter Circuit
 +----------------+------------------------------------------------------------+
 | Difficulty:    | Beginner.                                                  |
 +----------------+------------------------------------------------------------+
-| Requirement:   | `BondGraphTools`, `jupyter`.                               |
+| Requirements:  | `BondGraphTools`, `jupyter`.                               |
 +----------------+------------------------------------------------------------+
 | How to follow: | Enter each block of code in consecutive cells in a jupyter |
 |                | notebook.                                                  |
 +----------------+------------------------------------------------------------+
+
+Overview
+--------
 
 In part 1 of this tutorial we will demonstrate how to build and connect models
 using `BondGraphTools` by constructing a simple passive filter.

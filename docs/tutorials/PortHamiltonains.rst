@@ -2,11 +2,12 @@ Tutorial: Port Hamiltonians
 ===============================
 +----------------+------------------------------------------------------------+
 | Goal:          | Build and simulate a coupled oscillator system based on    |
-|                | bond graph modelling techniques.                           |
+|                | bond graph modelling techniques. Introduce object oriented |
+|                | modelling with BondGraphTools.                             |
 +----------------+------------------------------------------------------------+
 | Difficulty:    | Intermediate.                                              |
 +----------------+------------------------------------------------------------+
-| Requirement:   | `BondGraphTools`, `jupyter`.                               |
+| Requirements:  | `BondGraphTools`, `jupyter`.                               |
 +----------------+------------------------------------------------------------+
 | How to follow: | Enter each block of code in consecutive cells in a jupyter |
 |                | notebook.                                                  |
@@ -30,28 +31,42 @@ electromagnetic field to which the mechanical oscillators are coupled.
 Part 1: Building the oscillator array
 -------------------------------------
 
-The first step is to build a function that produces linear oscillators::
+The first step is to build a class representing the linear oscillators.
+Classes are a staple of object oriented modelling and, in this case,
+represents a kind of prototype for a new model.::
 
-    def linear_osc(index, freq, damping):
+    class Linear_Osc(bgt.BondGraph):
+        damping_rate = 0.1
 
-        model = new(name=f"Osc_{index}")
+        def __init__(self, freq, index):
 
-        r = new("R", value=damping)
-        l = new("I", value=1/freq)
-        c = new("C", value=1/freq)
-        port = new("SS")
-        law = new("1")
-        add(model, r, l, c, port, law)
+            # Create the components
+            r = bgt.new("R", name="R", value=self.damping_rate)
+            l = bgt.new("I", name="L", value=1/freq)
+            c = bgt.new("C", name="C", value=1/freq)
+            port = bgt.new("SS")
+            conservation_law = bgt.new("1")
 
-        for comp in (r,l,c):
-            connect(law, comp)
-        connect(port, law)
-        expose(port, label="F_in")
+            # Create the composite model and add the components
+            super().__init__(
+                name=f"Osc_{index}",
+                components=(r, l, c, port, conservation_law)
+            )
 
-        return model
+            # Define energy bonds
+            for component in (r, l, c):
+                bgt.connect(conservation_law, component)
 
-This should be familiar to readers who have done the Driven Filter Circuit and
-Modular Enzyme Tutorials.
+            bgt.connect(port, conservation_law)
+
+            # Expose the external port
+            bgt.expose(port, label="P_in")
+
+An overview of what's going on:
+1. `damping_rate` is a class-level
+
+The `__init__` method is called when a new instance of this class is
+created. A
 
 We will also define a set of global parameters::
 
