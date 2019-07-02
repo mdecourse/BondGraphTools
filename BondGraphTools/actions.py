@@ -155,12 +155,13 @@ def swap(old_component, new_component):
 
     Args:
         old_component: The component to be replaced. Must already be in the
-         model.
+                       model.
         new_component: The substitute component which must not be in the
-         model
+                       model
 
     Raises:
-        InvalidPortException, InvalidComponentException
+        InvalidComponentException
+        InvalidPortException
     """
 
     # TODO: More validation required
@@ -222,14 +223,11 @@ def new(component=None, name=None, library=base_id, value=None, **kwargs):
     Creates a new Bond Graph from a library component.
 
     Args:
-        component(str or obj): The type of component to create.
-         If a string is specified, the the component will be created from the
-         appropriate libaray. If an existing bond graph is given, the bond
-         graph will be cloned.
-        name (str): The name for the new component
-        library (str): The library from which to find this component (if
+        component(`str` or `object`): The type of component to create.
+        name (`str`): The name for the new component
+        library (`str): The library from which to find this component (if
         component is specified by string).
-        value:
+        value: Component specific parameters. Default is None.
 
     Returns: instance of :obj:`BondGraph`
 

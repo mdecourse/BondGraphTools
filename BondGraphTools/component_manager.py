@@ -2,24 +2,6 @@
 This module takes care of the loading and management of component libraries.
 This library will automatically load all factory libraries upon import.
 Additionally libraries can be added via :func:`load_library`.
-
-Component Libraries are expected to be in json format.
-The structure must be::
-
-    {
-        "id": The unique library id (str),
-        "description": The description of this library
-        "components": {
-            "component_id": component dictionary,
-            ...
-        }
-    }
-
-Each Component dictionary must be of the form::
-
-    {
-
-    }
 """
 import copy
 import json
@@ -69,8 +51,7 @@ def load_library(filename):
 
 
 def get_library_list():
-    """
-    Fetches a list of the libraries available for use.
+    """Fetches a list of the libraries available for use.
 
     Returns:
         list of (library id, description) tuples
@@ -80,8 +61,7 @@ def get_library_list():
 
 
 def get_components_list(library):
-    """
-    Fetches a list of components available in the given library.
+    """Lists components available in the given library.
 
     Args:
         library: The library id of the library to query
@@ -95,8 +75,8 @@ def get_components_list(library):
 
 
 def get_component(component, library=base_id):
-    """
-    Fetches the component data for the specified component
+    """Fetches the component data for the specified component.
+
     Args:
         component: The id of the specific component
         library: The id of the library to which the component belongs
@@ -109,22 +89,22 @@ def get_component(component, library=base_id):
 
 
 def find(component, restrict_to=None, find_all=False, ensure_unique=False):
-    """
-    Finds the specified component.
+    """Finds the specified component.
 
     Args:
-        component: The component id to find.
-        restrict_to: `list` or `set` of library id's to be that the search
-         should be restricted to.
-        find_all: `False` if the function should return only the first instance
-         of the component, `True` if the function should return all such
-         instances
+        component:    The component id to find.
+        restrict_to:  `list` or `set` of library id's to be that the search
+                      should be restricted to.
+        find_all:     `False` if the function should return only the first
+                       instance of the component, `True` if the function should
+                       return all such instances
         ensure_unique: If true, this assumes that the component id must be
-         unique across libraries, and hence will raise an exception if this is
-         assumption is violated.
+                       unique across libraries, and hence will raise an
+                       exception if this is assumption is violated.
 
-    Returns: the library id, or a list of library_id in which this component
-     can be found.
+    Returns:
+        str or list(str): the library id, or a list of library_id's in which
+                          this component can be found.
 
     Raises:
         NotImplementedError - if the component is not found.

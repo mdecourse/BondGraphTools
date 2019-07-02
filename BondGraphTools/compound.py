@@ -38,7 +38,6 @@ class BondGraph(BondGraphBase, LabeledPortManager):
         self._bonds = BondSet()
 
         self.view = GraphLayout(self)
-        """Graphical Layout of internal components"""
 
         self._port_map = dict()
         self._model_changed = True
@@ -158,7 +157,7 @@ class BondGraph(BondGraphBase, LabeledPortManager):
     @property
     def params(self):
         """
-        A dictionary of parameters for this model in the form::
+        A dictionary of parameters for this model in the form `{
             i: (component, param_name)
         """
         j = 0
