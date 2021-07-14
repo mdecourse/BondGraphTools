@@ -4,7 +4,7 @@ build:
   image: latest
 
 python:
-  version: 3.6
+  version: 3.7
   setup_py_install: true
   extra_requirements:
     - docs
@@ -12,4 +12,4 @@ formats:
   - epub
   - pdf
 
-requirements_file: requirements.txt
+requirements_file: docs/requirements.txt

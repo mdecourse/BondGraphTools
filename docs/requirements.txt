@@ -6,4 +6,3 @@ networkx
 requests
 pyYAML
 ordered-set
-scikits.odes
